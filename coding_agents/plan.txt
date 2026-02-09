@@ -1,0 +1,65 @@
+# Mail Server Development Plan
+
+## Current State Analysis
+- Basic project structure established with Flask, PostgreSQL
+- Database schema defined (users, folders, emails, email_recipients, attachments)
+- Core utilities exist for users, folders, emails
+- Routes defined for basic CRUD operations
+- Missing: app factory pattern,蓝图 integration, authentication, proper imports
+
+## Phase 1: Project Structure & Initialization
+1. Create unified app factory pattern
+   - Consolidate app initialization in app/__init__.py
+   - Register blueprints from routes.py
+   - Remove duplicate run.py/app.py files
+
+2. Fix import issues
+   - Update imports to use relative imports throughout
+   - Ensure consistent module access
+
+3. Setup todo list tracking
+   - Create coding_agents/todo_list.txt for progress tracking
+
+## Phase 2: Authentication & Security
+4. Add user authentication
+   - Password hashing (bcrypt)
+   - Login/logout endpoints
+   - JWT or session-based auth
+
+5. Add input validation
+   - Request body validation
+   - Email format validation
+   - Error handling
+
+## Phase 3: API Enhancement
+6. Complete email functionality
+   - Mark as read/starred
+   - Move between folders
+   - Delete emails
+
+7. Add attachment support
+   - Upload/download attachments
+   - File size limits
+
+8. Add search functionality
+   - Search by subject/body/recipient
+   - Filter by folder/flags
+
+## Phase 4: Testing & Documentation
+9. Add unit tests
+   - Test utilities
+   - Test API endpoints
+
+10. Add integration tests
+    - Full workflow testing
+
+11. Documentation
+    - API documentation
+    - Setup instructions
+    - Code comments where complex
+
+## Priority Order
+High: Phase 1 (foundation)
+Medium: Phase 2 (security)
+Medium: Phase 3 (complete features)
+Low: Phase 4 (testing doc)
