@@ -3,7 +3,7 @@ Completed:
 - Created unified app factory in app/__init__.py with create_app()
 - Registered routes blueprint
 - Updated all imports to use relative imports (.db)
-- Removed duplicate app.py file, consolidated in run.py
+- Removed duplicate run.py/app.py files, consolidated in run.py
 - Created coding_agents/todo_list.txt for tracking progress
 
 ## Phase 2: Authentication & Security (COMPLETE)
@@ -15,17 +15,28 @@ Completed:
 - Registered auth blueprint in app factory
 - Added JWT_SECRET to .env configuration
 
-## Phase 3: API Enhancement
-- [ ] Complete email functionality
-- [ ] Add attachment support
-- [ ] Add search functionality
+## Phase 3: API Enhancement (IN PROGRESS)
+Completed:
+- Added email functionality:
+  - GET /api/emails (list all emails)
+  - GET /api/emails/<id> (get single email)
+  - POST /api/emails (create email)
+  - POST /api/emails/<id>/read (mark as read)
+  - POST /api/emails/<id>/star (toggle starred)
+  - DELETE /api/emails/<id> (delete email)
+  - POST /api/emails/<id>/move (move between folders)
+- Added search functionality:
+  - GET /api/search?q=<query>&folder_id=<id>&flag=<read|unread|starred>
+- Created blueprints: emails, folders, search
+- Updated app/__init__.py to register all blueprints
+- Added requirements.txt with dependencies
 
 ## Phase 4: Testing & Documentation
 - [ ] Add unit tests
 - [ ] Add integration tests
 - [ ] Documentation
 
-## Priority Order
-High: Phase 1 (foundation), Phase 2 (security)
-Medium: Phase 3 (complete features)
-Low: Phase 4 (testing doc)
+## Next Steps:
+- Implement attachment support
+- Add input validation
+- Add file upload/download endpoints

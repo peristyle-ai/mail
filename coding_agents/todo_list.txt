@@ -14,10 +14,17 @@
 - [x] JWT or session-based auth
 - [x] Add input validation
 
-## Phase 3: API Enhancement
-- [ ] Complete email functionality
+## Phase 3: API Enhancement (IN PROGRESS)
+- [x] Complete email functionality
+- [x] - Mark as read/starred
+- [x] - Move between folders
+- [x] - Delete emails
+- [x] Add search functionality
+- [x] - Search by subject/body/recipient
+- [x] - Filter by folder/flags
 - [ ] Add attachment support
-- [ ] Add search functionality
+- [ ] - Upload/download attachments
+- [ ] - File size limits
 
 ## Phase 4: Testing & Documentation
 - [ ] Add unit tests
