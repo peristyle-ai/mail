@@ -1,13 +1,13 @@
-from flask import Flask, request, jsonify
-from app.db import get_db_connection
+from flask import Blueprint, request, jsonify
+from .db import get_db_connection
 
-app = Flask(__name__)
+bp = Blueprint('routes', __name__)
 
-@app.route('/health', methods=['GET'])
+@bp.route('/health', methods=['GET'])
 def health():
 	return jsonify({'status': 'ok'})
 
-@app.route('/api/emails', methods=['GET'])
+@bp.route('/api/emails', methods=['GET'])
 def get_emails():
 	conn = get_db_connection()
 	cursor = conn.cursor()
@@ -17,7 +17,7 @@ def get_emails():
 	conn.close()
 	return jsonify([dict(e) for e in emails])
 
-@app.route('/api/emails/<int:email_id>', methods=['GET'])
+@bp.route('/api/emails/<int:email_id>', methods=['GET'])
 def get_email(email_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
@@ -29,7 +29,7 @@ def get_email(email_id):
 		return jsonify({'error': 'Email not found'}), 404
 	return jsonify(dict(email))
 
-@app.route('/api/emails', methods=['POST'])
+@bp.route('/api/emails', methods=['POST'])
 def create_email():
 	data = request.get_json()
 	conn = get_db_connection()
@@ -44,7 +44,7 @@ def create_email():
 	conn.close()
 	return jsonify({'id': email_id}), 201
 
-@app.route('/api/folders', methods=['GET'])
+@bp.route('/api/folders', methods=['GET'])
 def get_folders():
 	user_id = request.args.get('user_id')
 	conn = get_db_connection()
@@ -55,7 +55,7 @@ def get_folders():
 	conn.close()
 	return jsonify([dict(f) for f in folders])
 
-@app.route('/api/folders', methods=['POST'])
+@bp.route('/api/folders', methods=['POST'])
 def create_folder():
 	data = request.get_json()
 	conn = get_db_connection()

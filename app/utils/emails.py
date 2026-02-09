@@ -1,5 +1,5 @@
 from flask import request, jsonify
-from app.db import get_db_connection
+from .db import get_db_connection
 
 def get_email_recipients(email_id, recipient_type=None):
 	conn = get_db_connection()

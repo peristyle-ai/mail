@@ -1,5 +1,5 @@
 from flask import request, jsonify
-from app.db import get_db_connection
+from .db import get_db_connection
 
 def get_folders(user_id):
 	conn = get_db_connection()

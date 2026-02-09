@@ -1,0 +1,25 @@
+# Mail Server Todo List
+
+## Phase 1: Project Structure & Initialization (COMPLETE)
+- [x] Create unified app factory pattern in app/__init__.py
+- [x] Register routes blueprint in app factory
+- [x] Fix import issues (use relative imports)
+- [x] Remove duplicate run.py/app.py files
+- [x] Create coding_agents/todo_list.txt for progress tracking
+
+## Phase 2: Authentication & Security (COMPLETE)
+- [x] Add user authentication
+- [x] Password hashing (bcrypt)
+- [x] Login/logout endpoints
+- [x] JWT or session-based auth
+- [x] Add input validation
+
+## Phase 3: API Enhancement
+- [ ] Complete email functionality
+- [ ] Add attachment support
+- [ ] Add search functionality
+
+## Phase 4: Testing & Documentation
+- [ ] Add unit tests
+- [ ] Add integration tests
+- [ ] Documentation

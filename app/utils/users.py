@@ -1,4 +1,4 @@
-from app.db import get_db_connection
+from .db import get_db_connection
 
 def get_user_by_email(email):
 	conn = get_db_connection()
