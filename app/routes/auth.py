@@ -6,6 +6,44 @@ bp = Blueprint('auth', __name__)
 
 @bp.route('/auth/register', methods=['POST'])
 def register():
+	"""
+	Register a new user
+	---
+	tags:
+	  - Authentication
+	parameters:
+	  - in: body
+	    name: body
+	    schema:
+	      type: object
+	      required:
+	        - email
+	        - password
+	      properties:
+	        email:
+	          type: string
+	          description: User's email address
+	        password:
+	          type: string
+	          description: User's password
+	        name:
+	          type: string
+	          description: User's display name
+	responses:
+	  201:
+	    description: User created successfully
+	    schema:
+	      type: object
+	      properties:
+	        id:
+	          type: integer
+	        email:
+	          type: string
+	  400:
+	    description: Missing required fields
+	  409:
+	    description: User already exists
+	"""
 	data = request.get_json()
 	email = data.get('email')
 	password = data.get('password')
@@ -24,6 +62,47 @@ def register():
 
 @bp.route('/auth/login', methods=['POST'])
 def login():
+	"""
+	Login and get JWT token
+	---
+	tags:
+	  - Authentication
+	parameters:
+	  - in: body
+	    name: body
+	    schema:
+	      type: object
+	      required:
+	        - email
+	        - password
+	      properties:
+	        email:
+	          type: string
+	          description: User's email address
+	        password:
+	          type: string
+	          description: User's password
+	responses:
+	  200:
+	    description: Login successful
+	    schema:
+	      type: object
+	      properties:
+	        token:
+	          type: string
+	          description: JWT token for authentication
+	        user:
+	          type: object
+	          properties:
+	            id:
+	              type: integer
+	            email:
+	              type: string
+	  400:
+	    description: Missing required fields
+	  401:
+	    description: Invalid credentials
+	"""
 	data = request.get_json()
 	email = data.get('email')
 	password = data.get('password')
