@@ -31,7 +31,7 @@ def run_flask_app(port=5000, debug=False):
 def main():
     parser = argparse.ArgumentParser(description='Start Mail Server (Flask API + SMTP)')
     parser.add_argument('--flask-port', type=int, default=5000, help='Flask API port (default: 5000)')
-    parser.add_argument('--smtp-port', type=int, default=587, help='SMTP server port (default: 587)')
+    parser.add_argument('--smtp-port', type=int, default=2525, help='SMTP server port (default: 2525, use 587 with sudo)')
     parser.add_argument('--smtp-host', default='0.0.0.0', help='SMTP bind address (default: 0.0.0.0)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     
