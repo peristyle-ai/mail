@@ -1,5 +1,6 @@
 from flask import Flask
 from flasgger import Swagger
+from flask_cors import CORS
 from app.main_routes import bp as routes_bp
 from app.routes.auth import bp as auth_bp
 from app.routes.emails import bp as emails_bp
@@ -9,6 +10,9 @@ from app.routes.attachments import bp as attachments_bp
 
 def create_app():
 	app = Flask(__name__)
+	
+	# Enable CORS for all domains (safe for local development)
+	CORS(app)
 	
 	# Swagger configuration
 	swagger_config = {
