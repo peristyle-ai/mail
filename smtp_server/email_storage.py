@@ -112,9 +112,9 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             )
             user = cursor.fetchone()
             conn.commit()
-            logger.info(f"Created user {recipient} with ID {user[0]}")
+            logger.info(f"Created user {recipient} with ID {user['id']}")
         
-        user_id = user[0]
+        user_id = user['id']
         
         # Get or create default inbox folder
         cursor.execute('SELECT id FROM folders WHERE user_id = %s AND name = %s', (user_id, 'Inbox'))
@@ -128,7 +128,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             folder = cursor.fetchone()
             conn.commit()
         
-        folder_id = folder[0]
+        folder_id = folder['id']
         
         # Insert email
         cursor.execute(
@@ -139,7 +139,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             (user_id, folder_id, subject, body, headers_str, datetime.now(timezone.utc), False)
         )
         
-        email_id = cursor.fetchone()[0]
+        email_id = cursor.fetchone()['id']
         
         # Add sender to email_recipients
         cursor.execute(
