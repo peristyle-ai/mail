@@ -12,11 +12,26 @@ import smtplib
 import argparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime
+import io
 
 
-def send_test_email(to_address, server_host='192.168.4.30', server_port=587, 
-                    from_address='test@example.com', subject=None, body=None):
+def create_test_attachment(filename="test_attachment.txt"):
+    """Create a small test attachment."""
+    content = f"""This is a test attachment.
+Created at: {datetime.now().isoformat()}
+Filename: {filename}
+
+This file was attached to test the mail server's attachment handling.
+"""
+    return filename, content.encode('utf-8'), 'text/plain'
+
+
+def send_test_email(to_address, server_host='192.168.4.30', server_port=2525, 
+                    from_address='test@example.com', subject=None, body=None, 
+                    attachment_filename=None, attachment_content=None, attachment_type=None):
     """
     Send a test email via SMTP.
     
@@ -58,6 +73,18 @@ Test Script
     # Attach body
     msg.attach(MIMEText(body, 'plain'))
     
+    # Attach file if provided
+    if attachment_filename and attachment_content:
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(attachment_content)
+        encoders.encode_base64(part)
+        part.add_header(
+            'Content-Disposition',
+            f'attachment; filename= "{attachment_filename}"'
+        )
+        msg.attach(part)
+        print(f"Attached file: {attachment_filename} ({len(attachment_content)} bytes)")
+    
     try:
         print(f"Connecting to SMTP server at {server_host}:{server_port}...")
         
@@ -75,6 +102,8 @@ Test Script
         print(f"  From: {from_address}")
         print(f"  To: {to_address}")
         print(f"  Subject: {subject}")
+        if attachment_filename and attachment_content:
+            print(f"  Attachment: {attachment_filename} ({len(attachment_content)} bytes)")
         print(f"\nCheck your mail server's API to verify the email was received.")
         return True
         
@@ -101,6 +130,9 @@ Examples:
   
   # Send to localhost (same machine)
   python send_test_email.py --to test@localhost --server 127.0.0.1
+  
+  # Send with attachment
+  python send_test_email.py --to user@example.com --attach
         """
     )
     
@@ -140,7 +172,20 @@ Examples:
         help='Email body text (default: auto-generated)'
     )
     
+    parser.add_argument(
+        '--attach', 
+        action='store_true',
+        help='Attach a test file to the email'
+    )
+    
     args = parser.parse_args()
+    
+    # Create attachment if requested
+    attachment_filename = None
+    attachment_content = None
+    attachment_type = None
+    if args.attach:
+        attachment_filename, attachment_content, attachment_type = create_test_attachment()
     
     print("="*60)
     print("SMTP Test Email Sender")
@@ -152,7 +197,10 @@ Examples:
         server_port=args.port,
         from_address=args.from_addr,
         subject=args.subject,
-        body=args.body
+        body=args.body,
+        attachment_filename=attachment_filename,
+        attachment_content=attachment_content,
+        attachment_type=attachment_type
     )
     
     if success:
