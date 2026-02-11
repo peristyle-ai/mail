@@ -141,10 +141,10 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         
         email_id = cursor.fetchone()['id']
         
-        # Add sender to email_recipients
+        # Add recipient to email_recipients (the user who received this email)
         cursor.execute(
             'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
-            (email_id, user_id, 'from')
+            (email_id, user_id, 'to')
         )
         
         conn.commit()
