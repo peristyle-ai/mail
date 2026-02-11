@@ -1,7 +1,7 @@
 import os
 import jwt
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify
 from .db import get_db_connection
@@ -14,10 +14,11 @@ def verify_password(password, password_hash):
 
 def generate_jwt(user_id):
     secret_key = os.getenv('JWT_SECRET', 'dev-secret-key')
+    now = datetime.now(timezone.utc)
     payload = {
         'user_id': user_id,
-        'exp': datetime.utcnow() + timedelta(hours=24),
-        'iat': datetime.utcnow()
+        'exp': now + timedelta(hours=24),
+        'iat': now
     }
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
