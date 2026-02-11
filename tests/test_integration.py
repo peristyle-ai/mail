@@ -1,4 +1,5 @@
 import pytest
+import uuid
 
 
 class TestEndToEndWorkflow:
@@ -7,9 +8,12 @@ class TestEndToEndWorkflow:
 	def test_complete_user_workflow(self, client, db):
 		"""Test complete workflow: register -> login -> create email -> search -> delete"""
 		
+		# Generate unique email to avoid conflicts
+		unique_email = f'workflow_{uuid.uuid4().hex[:8]}@example.com'
+		
 		# Step 1: Register
 		register_response = client.post('/auth/register', json={
-			'email': 'workflow@example.com',
+			'email': unique_email,
 			'password': 'workflowpass123',
 			'name': 'Workflow User'
 		})
@@ -18,7 +22,7 @@ class TestEndToEndWorkflow:
 		
 		# Step 2: Login
 		login_response = client.post('/auth/login', json={
-			'email': 'workflow@example.com',
+			'email': unique_email,
 			'password': 'workflowpass123'
 		})
 		assert login_response.status_code == 200
@@ -91,14 +95,17 @@ class TestEndToEndWorkflow:
 		"""Test complete attachment workflow"""
 		import io
 		
+		# Generate unique email to avoid conflicts
+		unique_email = f'attach_{uuid.uuid4().hex[:8]}@example.com'
+		
 		# Register and login
 		client.post('/auth/register', json={
-			'email': 'attach@example.com',
+			'email': unique_email,
 			'password': 'attachpass',
 			'name': 'Attachment User'
 		})
 		login_response = client.post('/auth/login', json={
-			'email': 'attach@example.com',
+			'email': unique_email,
 			'password': 'attachpass'
 		})
 		token = login_response.get_json()['token']
@@ -138,14 +145,18 @@ class TestEndToEndWorkflow:
 	def test_cross_user_data_isolation(self, client, db):
 		"""Test that users cannot access each other's data"""
 		
+		# Generate unique emails to avoid conflicts
+		user1_email = f'user1_{uuid.uuid4().hex[:8]}@example.com'
+		user2_email = f'user2_{uuid.uuid4().hex[:8]}@example.com'
+		
 		# Create User 1
 		client.post('/auth/register', json={
-			'email': 'user1@example.com',
+			'email': user1_email,
 			'password': 'pass1',
 			'name': 'User One'
 		})
 		login1 = client.post('/auth/login', json={
-			'email': 'user1@example.com',
+			'email': user1_email,
 			'password': 'pass1'
 		})
 		token1 = login1.get_json()['token']
@@ -153,12 +164,12 @@ class TestEndToEndWorkflow:
 		
 		# Create User 2
 		client.post('/auth/register', json={
-			'email': 'user2@example.com',
+			'email': user2_email,
 			'password': 'pass2',
 			'name': 'User Two'
 		})
 		login2 = client.post('/auth/login', json={
-			'email': 'user2@example.com',
+			'email': user2_email,
 			'password': 'pass2'
 		})
 		token2 = login2.get_json()['token']
