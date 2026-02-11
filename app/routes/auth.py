@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
-from app.db import get_db_connection
-from app.utils import get_user_by_email, create_user, hash_password, generate_jwt
+from ..db import get_db_connection
+from ..utils import get_user_by_email, create_user, hash_password, generate_jwt
 
 bp = Blueprint('auth', __name__)
 
