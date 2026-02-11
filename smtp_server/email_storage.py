@@ -99,7 +99,7 @@ def save_attachments(msg, email_id: int, conn, cursor):
             # Save to database with file_data (BYTEA)
             cursor.execute(
                 '''INSERT INTO attachments 
-                   (email_id, file_name, content_type, file_size, file_data) 
+                   (email_id, filename, content_type, file_size, file_data) 
                    VALUES (%s, %s, %s, %s, %s)''',
                 (email_id, filename, content_type, file_size, data)
             )
