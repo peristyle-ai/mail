@@ -68,7 +68,7 @@ def extract_subject(msg: EmailMessage) -> str:
     return subject
 
 
-def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
+def save_attachments(msg, email_id: int, conn, cursor):
     """Extract and save attachments from email message."""
     if not msg.is_multipart():
         return
@@ -96,19 +96,12 @@ def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
             
             file_size = len(data)
             
-            # Save to filesystem
-            unique_filename = f"{uuid.uuid4().hex}_{filename}"
-            file_path = os.path.join(UPLOADS_DIR, unique_filename)
-            
-            with open(file_path, 'wb') as f:
-                f.write(data)
-            
-            # Save to database
+            # Save to database with file_data (BYTEA)
             cursor.execute(
                 '''INSERT INTO attachments 
-                   (email_id, user_id, filename, content_type, file_path, file_size) 
-                   VALUES (%s, %s, %s, %s, %s, %s)''',
-                (email_id, user_id, filename, content_type, file_path, file_size)
+                   (email_id, file_name, content_type, file_size, file_data) 
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (email_id, filename, content_type, file_size, data)
             )
             
             attachment_count += 1
@@ -209,7 +202,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         )
         
         # Save any attachments
-        save_attachments(message, email_id, user_id, conn, cursor)
+        save_attachments(message, email_id, conn, cursor)
         
         conn.commit()
         cursor.close()
