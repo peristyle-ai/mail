@@ -1,6 +1,6 @@
 from flask import Flask
 from flasgger import Swagger
-from app.routes import bp as routes_bp
+from app.main_routes import bp as routes_bp
 from app.routes.auth import bp as auth_bp
 from app.routes.emails import bp as emails_bp
 from app.routes.folders import bp as folders_bp

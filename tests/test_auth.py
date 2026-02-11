@@ -1,4 +1,5 @@
 import pytest
+import uuid
 
 
 class TestAuth:
@@ -6,26 +7,28 @@ class TestAuth:
 	
 	def test_register_success(self, client, db):
 		"""Test successful user registration"""
+		unique_email = f'newuser_{uuid.uuid4().hex[:8]}@example.com'
 		response = client.post('/auth/register', json={
-			'email': 'newuser@example.com',
+			'email': unique_email,
 			'password': 'securepassword123',
 			'name': 'New User'
 		})
 		assert response.status_code == 201
 		data = response.get_json()
 		assert 'id' in data
-		assert data['email'] == 'newuser@example.com'
+		assert data['email'] == unique_email
 	
 	def test_register_duplicate_email(self, client, db):
 		"""Test registration with duplicate email returns 409"""
+		unique_email = f'duplicate_{uuid.uuid4().hex[:8]}@example.com'
 		client.post('/auth/register', json={
-			'email': 'duplicate@example.com',
+			'email': unique_email,
 			'password': 'password123',
 			'name': 'User 1'
 		})
 		
 		response = client.post('/auth/register', json={
-			'email': 'duplicate@example.com',
+			'email': unique_email,
 			'password': 'differentpassword',
 			'name': 'User 2'
 		})
@@ -42,40 +45,43 @@ class TestAuth:
 	
 	def test_register_missing_password(self, client, db):
 		"""Test registration without password returns 400"""
+		unique_email = f'missingpass_{uuid.uuid4().hex[:8]}@example.com'
 		response = client.post('/auth/register', json={
-			'email': 'test@example.com',
+			'email': unique_email,
 			'name': 'Test User'
 		})
 		assert response.status_code == 400
 	
 	def test_login_success(self, client, db):
 		"""Test successful login with valid credentials"""
+		unique_email = f'loginuser_{uuid.uuid4().hex[:8]}@example.com'
 		client.post('/auth/register', json={
-			'email': 'loginuser@example.com',
+			'email': unique_email,
 			'password': 'testpassword123',
 			'name': 'Login User'
 		})
 		
 		response = client.post('/auth/login', json={
-			'email': 'loginuser@example.com',
+			'email': unique_email,
 			'password': 'testpassword123'
 		})
 		assert response.status_code == 200
 		data = response.get_json()
 		assert 'token' in data
 		assert 'user' in data
-		assert data['user']['email'] == 'loginuser@example.com'
+		assert data['user']['email'] == unique_email
 	
 	def test_login_invalid_password(self, client, db):
 		"""Test login with wrong password returns 401"""
+		unique_email = f'wrongpass_{uuid.uuid4().hex[:8]}@example.com'
 		client.post('/auth/register', json={
-			'email': 'wrongpass@example.com',
+			'email': unique_email,
 			'password': 'correctpassword',
 			'name': 'Wrong Pass User'
 		})
 		
 		response = client.post('/auth/login', json={
-			'email': 'wrongpass@example.com',
+			'email': unique_email,
 			'password': 'wrongpassword'
 		})
 		assert response.status_code == 401
@@ -104,8 +110,9 @@ class TestAuth:
 	
 	def test_sql_injection_in_email(self, client, db):
 		"""Test SQL injection attempts are prevented"""
+		unique_email = f"sqlinject_{uuid.uuid4().hex[:8]}@example.com'; DROP TABLE users; --"
 		response = client.post('/auth/register', json={
-			'email': "test@example.com'; DROP TABLE users; --",
+			'email': unique_email,
 			'password': 'password123',
 			'name': 'SQL Injection Test'
 		})
@@ -114,8 +121,9 @@ class TestAuth:
 	
 	def test_xss_in_name_field(self, client, db):
 		"""Test XSS attempts in name field are handled"""
+		unique_email = f'xss_{uuid.uuid4().hex[:8]}@example.com'
 		response = client.post('/auth/register', json={
-			'email': 'xss@example.com',
+			'email': unique_email,
 			'password': 'password123',
 			'name': '<script>alert("xss")</script>'
 		})
@@ -126,9 +134,10 @@ class TestAuth:
 	
 	def test_very_long_password(self, client, db):
 		"""Test password hashing handles very long passwords"""
+		unique_email = f'longpass_{uuid.uuid4().hex[:8]}@example.com'
 		long_password = 'a' * 10000
 		response = client.post('/auth/register', json={
-			'email': 'longpass@example.com',
+			'email': unique_email,
 			'password': long_password,
 			'name': 'Long Pass User'
 		})
@@ -136,7 +145,7 @@ class TestAuth:
 		
 		# Verify can login with long password
 		response = client.post('/auth/login', json={
-			'email': 'longpass@example.com',
+			'email': unique_email,
 			'password': long_password
 		})
 		assert response.status_code == 200

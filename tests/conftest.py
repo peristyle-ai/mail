@@ -30,11 +30,12 @@ def db():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
+	# Clean up test data but keep users for auth
 	cursor.execute("DELETE FROM email_recipients")
 	cursor.execute("DELETE FROM attachments")
 	cursor.execute("DELETE FROM emails")
 	cursor.execute("DELETE FROM folders")
-	cursor.execute("DELETE FROM users")
+	# Note: We don't delete users here because auth_headers fixture needs them
 	
 	conn.commit()
 	cursor.close()
@@ -44,14 +45,24 @@ def db():
 
 
 @pytest.fixture
-def auth_headers(client):
+def auth_headers(client, db):
 	"""Create a test user and return auth headers"""
+	# First clean up any existing test user
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	cursor.execute("DELETE FROM users WHERE email = 'test@example.com'")
+	conn.commit()
+	cursor.close()
+	conn.close()
+	
+	# Register new user
 	response = client.post('/auth/register', json={
 		'email': 'test@example.com',
 		'password': 'testpassword123',
 		'name': 'Test User'
 	})
 	
+	# Login to get token
 	response = client.post('/auth/login', json={
 		'email': 'test@example.com',
 		'password': 'testpassword123'
@@ -63,14 +74,24 @@ def auth_headers(client):
 
 
 @pytest.fixture
-def auth_headers_second_user(client):
+def auth_headers_second_user(client, db):
 	"""Create a second test user and return auth headers for cross-user security tests"""
+	# First clean up any existing test user
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	cursor.execute("DELETE FROM users WHERE email = 'test2@example.com'")
+	conn.commit()
+	cursor.close()
+	conn.close()
+	
+	# Register new user
 	response = client.post('/auth/register', json={
 		'email': 'test2@example.com',
 		'password': 'testpassword456',
 		'name': 'Test User 2'
 	})
 	
+	# Login to get token
 	response = client.post('/auth/login', json={
 		'email': 'test2@example.com',
 		'password': 'testpassword456'

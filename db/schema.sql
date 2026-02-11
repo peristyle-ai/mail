@@ -43,10 +43,11 @@ CREATE TABLE email_recipients (
 CREATE TABLE attachments (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
-	file_name VARCHAR(255) NOT NULL,
+	user_id INTEGER NOT NULL REFERENCES users(id),
+	filename VARCHAR(255) NOT NULL,
 	content_type VARCHAR(255),
+	file_path VARCHAR(500),
 	file_size BIGINT,
-	file_data BYTEA,
 	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
