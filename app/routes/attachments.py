@@ -73,6 +73,20 @@ def upload_attachment(email_id):
 	if file.content_length and file.content_length > MAX_FILE_SIZE:
 		return jsonify({'error': 'File too large (max 10MB)'}), 413
 	
+	# Verify user owns the email before allowing upload
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	cursor.execute('SELECT sender_id FROM emails WHERE id = %s', (email_id,))
+	email = cursor.fetchone()
+	cursor.close()
+	conn.close()
+	
+	if not email:
+		return jsonify({'error': 'Email not found'}), 404
+	
+	if email['sender_id'] != request.current_user['id']:
+		return jsonify({'error': 'Unauthorized'}), 403
+	
 	unique_filename = get_unique_filename(file.filename)
 	file_path = f"uploads/{unique_filename}"
 	os.makedirs('uploads', exist_ok=True)
@@ -128,8 +142,21 @@ def list_attachments(email_id):
 	  401:
 	    description: Unauthorized
 	"""
+	# Verify user owns the email before listing attachments
 	conn = get_db_connection()
 	cursor = conn.cursor()
+	cursor.execute('SELECT sender_id FROM emails WHERE id = %s', (email_id,))
+	email = cursor.fetchone()
+	
+	if not email:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Email not found'}), 404
+	
+	if email['sender_id'] != request.current_user['id']:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Unauthorized'}), 403
 	
 	cursor.execute('SELECT * FROM attachments WHERE email_id = %s', (email_id,))
 	attachments = cursor.fetchall()
