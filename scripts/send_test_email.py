@@ -119,8 +119,8 @@ Examples:
     parser.add_argument(
         '--port', 
         type=int, 
-        default=587,
-        help='SMTP server port (default: 587)'
+        default=2525,
+        help='SMTP server port (default: 2525, standard SMTP is 587 but requires root)'
     )
     
     parser.add_argument(

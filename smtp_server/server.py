@@ -8,7 +8,7 @@ from .handler import MailHandler
 logger = logging.getLogger(__name__)
 
 
-def start_smtp_server(host='0.0.0.0', port=587, debug=False):
+def start_smtp_server(host='0.0.0.0', port=2525, debug=False):
     """
     Start the SMTP server.
     
@@ -48,7 +48,7 @@ def stop_smtp_server(controller):
 
 if __name__ == '__main__':
     # Test the SMTP server
-    print("Starting SMTP server on port 587...")
+    print("Starting SMTP server on port 2525...")
     print("Press Ctrl+C to stop")
     
     controller = start_smtp_server(debug=True)

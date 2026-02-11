@@ -11,7 +11,7 @@ python start_servers.py
 ```
 
 This will start:
-- **SMTP Server** on port 587 (receives emails)
+- **SMTP Server** on port 2525 (receives emails)
 - **Flask API** on port 5000 (REST API + Swagger UI)
 
 ### 2. Test from Same Computer
@@ -58,17 +58,17 @@ To receive emails from the internet:
 ### 1. Port Forwarding
 
 On your router, forward:
-- External port 587 → Internal 192.168.4.30:587
+- External port 2525 → Internal 192.168.4.30:2525
 
 ### 2. Firewall
 
-Allow incoming TCP on port 587:
+Allow incoming TCP on port 2525:
 ```bash
 # Ubuntu/Debian with ufw
-sudo ufw allow 587/tcp
+sudo ufw allow 2525/tcp
 
 # Or iptables
-sudo iptables -A INPUT -p tcp --dport 587 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 2525 -j ACCEPT
 ```
 
 ### 3. DNS (For production)
@@ -145,27 +145,27 @@ Internet / Gmail
 
 **Port already in use:**
 ```bash
-# Find process using port 587
+# Find process using port 2525
 sudo lsof -i :587
 # Kill it
 sudo kill -9 <PID>
 ```
 
 **Permission denied (port < 1024):**
-- Use port 587 (recommended) or run with sudo for port 25
+- Use port 2525 (recommended) or run with sudo for port 25
 
 ### Can't Send from Another Computer
 
 1. **Check firewall:**
    ```bash
    sudo ufw status
-   sudo ufw allow 587/tcp
+   sudo ufw allow 2525/tcp
    ```
 
 2. **Test connectivity:**
    ```bash
    # From other computer
-   telnet 192.168.4.30 587
+   telnet 192.168.4.30 2525
    ```
 
 3. **Check SMTP logs:**
