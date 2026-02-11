@@ -82,11 +82,11 @@ def upload_attachment(email_id):
 	cursor = conn.cursor()
 	
 	cursor.execute(
-		'INSERT INTO attachments (email_id, filename, content_type, file_path, file_size, user_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-		(email_id, file.filename, file.content_type, file_path, file.content_length, request.current_user['id'])
+		'INSERT INTO attachments (email_id, user_id, filename, content_type, file_path, file_size) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+		(email_id, request.current_user['id'], file.filename, file.content_type, file_path, file.content_length if file.content_length else 0)
 	)
 	
-	attachment_id = cursor.fetchone()[0]
+	attachment_id = cursor.fetchone()['id']
 	conn.commit()
 	cursor.close()
 	conn.close()

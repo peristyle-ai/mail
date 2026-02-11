@@ -66,7 +66,7 @@ def search_emails():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 
-	sql = 'SELECT * FROM emails WHERE user_id = %s'
+	sql = 'SELECT * FROM emails WHERE sender_id = %s'
 	params = [request.current_user['id']]
 
 	if query:
@@ -91,7 +91,7 @@ def search_emails():
 	cursor.execute(sql, params)
 	emails = cursor.fetchall()
 	
-	cursor.execute('SELECT COUNT(*) as total FROM emails WHERE user_id = %s', [request.current_user['id']])
+	cursor.execute('SELECT COUNT(*) as total FROM emails WHERE sender_id = %s', [request.current_user['id']])
 	total = cursor.fetchone()['total']
 	
 	cursor.close()
