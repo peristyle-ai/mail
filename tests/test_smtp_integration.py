@@ -61,7 +61,7 @@ def get_last_email_with_attachments():
     attachments = []
     if email:
         cursor.execute('''
-            SELECT filename, file_size, content_type 
+            SELECT file_name, file_size, content_type 
             FROM attachments 
             WHERE email_id = %s
         ''', (email['id'],))
@@ -162,7 +162,7 @@ class TestSMTPReception:
         assert email is not None, "Email should exist"
         assert email['subject'] == 'SMTP Test - With Attachment', "Subject should match"
         assert len(attachments) == 1, "Should have one attachment"
-        assert attachments[0]['filename'] == 'test_file.txt', "Filename should match"
+        assert attachments[0]['file_name'] == 'test_file.txt', "Filename should match"
         assert attachments[0]['file_size'] == len(attachment_content), "File size should match"
     
     def test_receive_multiple_recipients(self, smtp_server, db):
