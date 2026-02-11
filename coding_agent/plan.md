@@ -1,153 +1,121 @@
-## Phase 5: Update Datetime Handling to Use Timezone-Aware Objects
+## Phase 6: Add SMTP Server for Receiving Real Emails
 
 ## Overview
-Migrate from deprecated `datetime.utcnow()` to timezone-aware datetime objects using `datetime.now(timezone.utc)`. Ensure consistency between Python code and PostgreSQL database.
+Add SMTP server capability using aiosmtpd to receive real emails from the internet and store them in PostgreSQL.
 
----
+## Architecture
 
-## Goals
-1. Replace all `datetime.utcnow()` calls with `datetime.now(timezone.utc)`
-2. Update PostgreSQL schema to use `TIMESTAMP WITH TIME ZONE` instead of `TIMESTAMP`
-3. Ensure all datetime handling is consistent across the application
-4. Maintain backward compatibility with existing data
+### Components:
+1. **SMTP Server** (aiosmtpd) - Receives emails on port 25/587
+2. **Email Handler** - Parses incoming emails and stores in database
+3. **Flask API** - Serves existing REST API for email management (port 5000)
+4. **Test Scripts** - For testing from another computer
 
----
-
-## Implementation Plan
-
-### Step 1: Update Python Code
-**Files to modify:**
-- `app/utils/auth.py` - JWT token generation (exp, iat claims)
-- `app/utils/users.py` - User creation timestamp
-- Any other files using `datetime.utcnow()`
-
-**Changes:**
-- Import `timezone` from `datetime`
-- Replace `datetime.utcnow()` with `datetime.now(timezone.utc)`
-- Update any datetime comparisons to handle timezone-aware objects
-
----
-
-### Step 2: Update Database Schema
-**Files to modify:**
-- `db/schema.sql` - Update column types
-
-**Changes:**
-- Change `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` to `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`
-- Update all tables: users, folders, emails, attachments, email_recipients
-
----
-
-### Step 3: Create Migration Script
-**New file:** `db/migrate_timezone.sql`
-
-**Purpose:**
-- Migrate existing data from TIMESTAMP to TIMESTAMP WITH TIME ZONE
-- Handle conversion of existing timestamps to UTC
-- Run as part of deployment
-
----
-
-### Step 4: Update Test Database
-**Actions:**
-- Drop and recreate test database with new schema
-- Verify all tests pass with timezone-aware datetimes
-
----
-
-### Step 5: Verify and Test
-**Actions:**
-- Run full test suite
-- Test JWT token generation/validation
-- Verify database timestamps are stored correctly
-- Check that API responses include timezone information
-
----
-
-## Technical Details
-
-### Python Changes
-```python
-# Before
-from datetime import datetime, timedelta
-now = datetime.utcnow()
-
-# After
-from datetime import datetime, timedelta, timezone
-now = datetime.now(timezone.utc)
+### Flow:
+```
+External Email Client/Sender
+        |
+        v
+    Port 587 (SMTP)
+        |
+        v
+   aiosmtpd Server
+        |
+        v
+   Email Handler
+        |
+        v
+   PostgreSQL Database
+        |
+        v
+   Flask REST API (Port 5000)
 ```
 
-### PostgreSQL Changes
-```sql
--- Before
-CREATE TABLE users (
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+## Implementation Steps
 
--- After
-CREATE TABLE users (
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+### Step 1: Install Dependencies
+- Install aiosmtpd for SMTP server functionality
+- Add to requirements.txt
+
+### Step 2: Create SMTP Server Module
+**Files to create:**
+- `smtp_server/__init__.py` - Package initialization
+- `smtp_server/handler.py` - SMTP message handler
+- `smtp_server/server.py` - SMTP server setup
+- `smtp_server/email_storage.py` - Store emails in database
+
+### Step 3: Update Database Schema
+- Add support for incoming email fields
+- Store raw email headers
+- Support multiple recipients
+
+### Step 4: Create Test Script
+- `scripts/send_test_email.py` - Script for other computer (192.168.4.x)
+- Can send via SMTP to 192.168.4.30:587
+
+### Step 5: Create Startup Script
+- `start_servers.py` - Starts both Flask and SMTP servers
+- Manage both processes
+
+### Step 6: Network Configuration
+- Document port forwarding for internet access
+- Firewall configuration
+- Testing from external sources
+
+## Network Setup
+
+### Local Network Test:
+```
+Flask Server: 192.168.4.30 (ports 5000, 587)
+Test Computer: 192.168.4.x
 ```
 
-### Migration SQL
-```sql
--- Convert existing tables
-ALTER TABLE users 
-    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE,
-    ALTER COLUMN updated_at TYPE TIMESTAMP WITH TIME ZONE;
+### Ports:
+- **5000**: Flask API (existing)
+- **587**: SMTP Submission (new, for receiving emails)
+- **25**: SMTP (optional, often blocked by ISPs)
 
--- Repeat for all tables with timestamp columns
-```
+### Port Forwarding for Internet:
+1. Router: Forward external 587 → 192.168.4.30:587
+2. Firewall: Allow incoming TCP on port 587
+3. For production: Set up MX record in DNS
 
----
+## Testing Plan
 
-## Files Checklist
+### Phase 1: Local Test
+1. Start SMTP server on Flask machine
+2. Send test email using script on same machine
+3. Verify email appears in database
+4. Verify email appears in API
 
-### Code Files
-- [ ] `app/utils/auth.py` - Update JWT datetime handling
-- [ ] `app/utils/users.py` - Update user creation timestamp
-- [ ] Search for any other `utcnow()` usage
+### Phase 2: Network Test
+1. Run test script from other computer (192.168.4.x)
+2. Send email to the operator@example.com.au
+3. Verify receipt in database
 
-### Database Files
-- [ ] `db/schema.sql` - Update column definitions
-- [ ] `db/migrate_timezone.sql` - Create migration script (new file)
+### Phase 3: Internet Test
+1. Configure port forwarding
+2. Send email from external service (Gmail, etc.)
+3. Verify receipt
 
-### Test Files
-- [ ] Run full test suite after changes
-- [ ] Verify JWT tokens still work
-- [ ] Check datetime serialization in API responses
+## Files to Create
+1. `smtp_server/__init__.py`
+2. `smtp_server/handler.py`
+3. `smtp_server/server.py`
+4. `smtp_server/email_storage.py`
+5. `scripts/send_test_email.py`
+6. `start_servers.py`
+7. `SMTP_SETUP.md`
 
----
-
-## Potential Issues and Solutions
-
-### Issue 1: Existing Data Conversion
-**Problem:** Converting existing TIMESTAMP to TIMESTAMP WITH TIME ZONE
-**Solution:** PostgreSQL assumes TIMESTAMP is in local timezone, need explicit conversion
-
-### Issue 2: API Response Format
-**Problem:** API responses may change format with timezone info
-**Solution:** Ensure JSON serialization handles timezone-aware datetimes correctly
-
-### Issue 3: JWT Token Compatibility
-**Problem:** Existing tokens use utcnow(), new tokens use timezone-aware
-**Solution:** Both should work since JWT uses Unix timestamps internally
-
----
-
-## Success Criteria
-- [ ] All `datetime.utcnow()` calls replaced with `datetime.now(timezone.utc)`
-- [ ] Database schema uses `TIMESTAMP WITH TIME ZONE`
-- [ ] All tests pass
-- [ ] No deprecation warnings about datetime usage
-- [ ] Existing data properly migrated
-
----
+## Security Considerations
+- No authentication needed for incoming (standard SMTP)
+- Rate limiting to prevent spam
+- Spam filtering (optional)
+- TLS/SSL encryption (recommended for production)
 
 ## Estimated Time
-- Step 1 (Code): 20 minutes
-- Step 2 (Schema): 10 minutes
-- Step 3 (Migration): 15 minutes
-- Step 4 (Testing): 20 minutes
-- **Total: ~65 minutes**
+- SMTP module: 40 minutes
+- Database updates: 15 minutes
+- Test scripts: 15 minutes
+- Testing: 20 minutes
+- **Total: ~90 minutes**
