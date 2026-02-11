@@ -96,12 +96,20 @@ def save_attachments(msg, email_id: int, conn, cursor):
             
             file_size = len(data)
             
-            # Save to database with file_data (BYTEA)
+            # Save to database - schema uses filename (no underscore), file_path
+            unique_filename = f"{uuid.uuid4().hex}_{filename}"
+            file_path = os.path.join(UPLOADS_DIR, unique_filename)
+            
+            # Save to filesystem
+            with open(file_path, 'wb') as f:
+                f.write(data)
+            
+            # Save metadata to database
             cursor.execute(
                 '''INSERT INTO attachments 
-                   (email_id, file_name, content_type, file_size, file_data) 
-                   VALUES (%s, %s, %s, %s, %s)''',
-                (email_id, filename, content_type, file_size, data)
+                   (email_id, user_id, filename, content_type, file_path, file_size) 
+                   VALUES (%s, %s, %s, %s, %s, %s)''',
+                (email_id, user_id, filename, content_type, file_path, file_size)
             )
             
             attachment_count += 1
