@@ -68,7 +68,7 @@ def extract_subject(msg: EmailMessage) -> str:
     return subject
 
 
-def save_attachments(msg, email_id: int, conn, cursor):
+def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
     """Extract and save attachments from email message."""
     if not msg.is_multipart():
         return
@@ -210,7 +210,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         )
         
         # Save any attachments
-        save_attachments(message, email_id, conn, cursor)
+        save_attachments(message, email_id, user_id, conn, cursor)
         
         conn.commit()
         cursor.close()
