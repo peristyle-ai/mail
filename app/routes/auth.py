@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
-from ..utils import get_user_by_email, create_user, hash_password, generate_jwt
+from ..utils import get_user_by_email, create_user, hash_password, verify_password, generate_jwt
 
 bp = Blueprint('auth', __name__)
 
@@ -35,7 +35,7 @@ def login():
 	if not user:
 		return jsonify({'error': 'Invalid credentials'}), 401
 
-	if hash_password(password) != user['password_hash']:
+	if not verify_password(password, user['password_hash']):
 		return jsonify({'error': 'Invalid credentials'}), 401
 
 	token = generate_jwt(user['id'])
