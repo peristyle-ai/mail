@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from datetime import datetime, timezone
 import sys
 import os
+import uuid
 
 # Add parent directory to path to import app modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,6 +14,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.db import get_db_connection
 
 logger = logging.getLogger(__name__)
+
+# Create uploads directory for attachments
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 def extract_email_body(msg: EmailMessage) -> str:
@@ -61,6 +66,62 @@ def extract_subject(msg: EmailMessage) -> str:
             else:
                 subject += part
     return subject
+
+
+def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
+    """Extract and save attachments from email message."""
+    if not msg.is_multipart():
+        return
+    
+    attachment_count = 0
+    for part in msg.walk():
+        # Skip the message body parts
+        content_disposition = part.get('Content-Disposition', '')
+        if 'attachment' not in content_disposition:
+            continue
+        
+        # Get attachment filename
+        filename = part.get_filename()
+        if not filename:
+            filename = f"attachment_{uuid.uuid4().hex[:8]}.bin"
+        
+        # Get content type
+        content_type = part.get_content_type()
+        
+        # Get attachment data
+        try:
+            data = part.get_payload(decode=True)
+            if not data:
+                continue
+            
+            file_size = len(data)
+            
+            # Save to filesystem
+            unique_filename = f"{uuid.uuid4().hex}_{filename}"
+            file_path = os.path.join(UPLOADS_DIR, unique_filename)
+            
+            with open(file_path, 'wb') as f:
+                f.write(data)
+            
+            # Save to database
+            cursor.execute(
+                '''INSERT INTO attachments 
+                   (email_id, user_id, filename, content_type, file_path, file_size) 
+                   VALUES (%s, %s, %s, %s, %s, %s)''',
+                (email_id, user_id, filename, content_type, file_path, file_size)
+            )
+            
+            attachment_count += 1
+            logger.info(f"Saved attachment: {filename} ({file_size} bytes)")
+            
+        except Exception as e:
+            logger.error(f"Error saving attachment {filename}: {e}")
+            continue
+    
+    if attachment_count > 0:
+        logger.info(f"Saved {attachment_count} attachment(s) for email {email_id}")
+    
+    return attachment_count
 
 
 def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: bytes) -> int:
@@ -146,6 +207,9 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
             (email_id, user_id, 'to')
         )
+        
+        # Save any attachments
+        save_attachments(message, email_id, user_id, conn, cursor)
         
         conn.commit()
         cursor.close()
