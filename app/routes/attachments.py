@@ -1,7 +1,8 @@
 import os
+import uuid
 from flask import Blueprint, request, jsonify, send_file
 from app.utils.auth import token_required
-from .db import get_db_connection
+from ..db import get_db_connection
 
 bp = Blueprint('attachments', __name__)
 
@@ -12,7 +13,6 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_unique_filename(filename):
-    import uuid
     extension = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
     unique_name = str(uuid.uuid4())
     if extension:
@@ -48,7 +48,7 @@ def upload_attachment(email_id):
         (email_id, file.filename, file.content_type, file_path, file.content_length, request.current_user['id'])
     )
     
-    attachment_id = cursor.fetchone()['id']
+    attachment_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
     conn.close()
@@ -79,10 +79,10 @@ def download_attachment(attachment_id):
     cursor.close()
     conn.close()
     
-    if not attachment or not os.path.exists(attachment['file_path']):
+    if not attachment or not os.path.exists(str(attachment['file_path'])):
         return jsonify({'error': 'Attachment not found'}), 404
     
-    return send_file(attachment['file_path'], as_attachment=True)
+    return send_file(str(attachment['file_path']), as_attachment=True)
 
 @bp.route('/api/attachments/<int:attachment_id>', methods=['DELETE'])
 @token_required
@@ -96,7 +96,7 @@ def delete_attachment_route(attachment_id):
     if not attachment:
         return jsonify({'error': 'Attachment not found'}), 404
     
-    file_path = attachment['file_path']
+    file_path = str(attachment['file_path'])
     if os.path.exists(file_path):
         os.remove(file_path)
     
