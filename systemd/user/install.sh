@@ -5,6 +5,22 @@ set -e
 
 echo "Installing Mail Server systemd user service..."
 
+# Read JWT_SECRET from .env file
+if [ -f ~/git/py_pg_email/.env ]; then
+    JWT_SECRET=$(grep '^JWT_SECRET=' ~/git/py_pg_email/.env | cut -d '=' -f2)
+    if [ -z "$JWT_SECRET" ]; then
+        echo "Error: JWT_SECRET not found in .env file"
+        exit 1
+    fi
+    echo "Using JWT_SECRET from .env file"
+else
+    echo "Error: .env file not found at ~/git/py_pg_email/.env"
+    exit 1
+fi
+
+# Update service file with JWT_SECRET
+sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" ~/git/py_pg_email/systemd/user/mail-server.service
+
 # Create systemd user directory if it doesn't exist
 mkdir -p ~/.config/systemd/user
 
