@@ -6,7 +6,7 @@ Legitimate mail servers retry; spammers often don't.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, Optional
 import sys
 import os
@@ -68,7 +68,9 @@ class GreylistManager:
             result = cursor.fetchone()
             
             if result:
-                entry_id, whitelisted, first_seen = result
+                entry_id = result['id']
+                whitelisted = result['whitelisted']
+                first_seen = result['first_seen']
                 
                 if whitelisted:
                     # Update last seen
@@ -83,7 +85,7 @@ class GreylistManager:
                     return True, None
                 
                 # Not yet whitelisted - check if delay has passed
-                elapsed = datetime.now() - first_seen
+                elapsed = datetime.now(timezone.utc) - first_seen
                 if elapsed >= timedelta(minutes=self.delay_minutes):
                     # Whitelist now
                     cursor.execute('''
@@ -108,7 +110,7 @@ class GreylistManager:
                 cursor.execute('''
                     INSERT INTO greylist (client_ip, sender, recipient, first_seen, whitelisted)
                     VALUES (%s, %s, %s, %s, FALSE)
-                ''', (client_ip, sender, recipient, datetime.now()))
+                ''', (client_ip, sender, recipient, datetime.now(timezone.utc)))
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -126,7 +128,7 @@ class GreylistManager:
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            cutoff = datetime.now() - timedelta(days=self.whitelist_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.whitelist_days)
             
             cursor.execute('''
                 DELETE FROM greylist 
@@ -150,11 +152,13 @@ class GreylistManager:
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            cursor.execute('SELECT COUNT(*) FROM greylist WHERE whitelisted = FALSE')
-            pending = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) as total FROM greylist WHERE whitelisted = FALSE')
+            result = cursor.fetchone()
+            pending = result['total'] if result else 0
             
-            cursor.execute('SELECT COUNT(*) FROM greylist WHERE whitelisted = TRUE')
-            whitelisted = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) as total FROM greylist WHERE whitelisted = TRUE')
+            result = cursor.fetchone()
+            whitelisted = result['total'] if result else 0
             
             cursor.close()
             conn.close()
