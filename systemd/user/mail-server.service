@@ -1,0 +1,27 @@
+[Unit]
+Description=Mail Server (Flask API + SMTP)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/git/py_pg_email
+Environment=FLASK_APP=run.py
+Environment=FLASK_ENV=production
+Environment=PYTHONPATH=%h/git/py_pg_email
+Environment=DATABASE_URL=postgresql://localhost/mail_server
+Environment=JWT_SECRET=your-production-secret-key-change-this
+
+# Use the startup script
+ExecStart=%h/git/py_pg_email/venv/bin/python %h/git/py_pg_email/start_servers.py --flask-port 5000 --smtp-port 2525
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mail-server
+
+[Install]
+WantedBy=default.target
