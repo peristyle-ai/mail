@@ -1,45 +1,49 @@
 #!/bin/bash
-# Installation script for user-level mail-server systemd service
-# This installs to ~/.config/systemd/user/ (no sudo required!)
+# Installation script for mail-server systemd service (system-level)
+# This installs to /etc/systemd/system/ (requires sudo)
 
 set -e
 
-echo "Installing Mail Server systemd user service..."
-echo "Installing to: ~/.config/systemd/user/"
+echo "Installing Mail Server systemd service (system-level)..."
+echo "This will install to: /etc/systemd/system/"
 echo ""
 
-# Create user systemd directory if it doesn't exist
-mkdir -p ~/.config/systemd/user
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root (use sudo)"
+    exit 1
+fi
 
-# Copy service file from user directory
-cp ~/git/py_pg_email/systemd/user/mail-server.service ~/.config/systemd/user/
+# Copy service file
+cp /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service /etc/systemd/system/
 
 # Make scripts executable
-chmod +x ~/git/py_pg_email/start_mail_server.sh
-chmod +x ~/git/py_pg_email/start_servers.py
+chmod +x /opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
+chmod +x /opt/py_pg_accounts/git/py_pg_email/start_servers.py
 
-# Create uploads directory if it doesn't exist
-mkdir -p ~/git/py_pg_email/uploads
+# Create uploads directory with proper permissions
+mkdir -p /opt/py_pg_accounts/git/py_pg_email/uploads
+chown -R mal:mal /opt/py_pg_accounts/git/py_pg_email/uploads
 
-# Reload systemd user daemon
-echo "Reloading systemd user daemon..."
-systemctl --user daemon-reload
+# Reload systemd
+echo "Reloading systemd..."
+systemctl daemon-reload
 
-# Enable service to start on user login
-echo "Enabling mail-server user service..."
-systemctl --user enable mail-server.service
+# Enable service to start on boot
+echo "Enabling mail-server service..."
+systemctl enable mail-server.service
 
 echo ""
 echo "✓ Installation complete!"
 echo ""
-echo "User Commands (no sudo needed):"
-echo "  systemctl --user start mail-server      # Start the service"
-echo "  systemctl --user stop mail-server       # Stop the service"  
-echo "  systemctl --user restart mail-server    # Restart the service"
-echo "  systemctl --user status mail-server     # Check status"
-echo "  journalctl --user -u mail-server -f     # View logs"
+echo "System Commands (requires sudo):"
+echo "  sudo systemctl start mail-server      # Start the service"
+echo "  sudo systemctl stop mail-server       # Stop the service"
+echo "  sudo systemctl restart mail-server    # Restart the service"
+echo "  sudo systemctl status mail-server     # Check status"
+echo "  sudo journalctl -u mail-server -f     # View logs"
 echo ""
-echo "Optional - Start on system boot:"
-echo "  sudo loginctl enable-linger \$USER"
+echo "The service will automatically start on system boot."
 echo ""
-echo "The service will automatically start when you log in."
+echo "For user-level service (no sudo required), use:"
+echo "  bash ~/git/py_pg_email/systemd/user/install.sh"
