@@ -51,9 +51,35 @@ CREATE TABLE attachments (
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Greylisting table for spam reduction
+CREATE TABLE greylist (
+	id SERIAL PRIMARY KEY,
+	client_ip INET NOT NULL,
+	sender VARCHAR(255) NOT NULL,
+	recipient VARCHAR(255) NOT NULL,
+	first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	retry_count INTEGER DEFAULT 0,
+	whitelisted BOOLEAN DEFAULT FALSE,
+	UNIQUE(client_ip, sender, recipient)
+);
+
+-- Rate limit violations tracking
+CREATE TABLE rate_limit_violations (
+	id SERIAL PRIMARY KEY,
+	client_ip INET NOT NULL,
+	violation_type VARCHAR(50) NOT NULL,
+	count INTEGER DEFAULT 1,
+	timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX idx_emails_sender ON emails(sender_id);
 CREATE INDEX idx_emails_folder ON emails(folder_id);
 CREATE INDEX idx_emails_created ON emails(created_at);
 CREATE INDEX idx_recipients_user ON email_recipients(user_id);
 CREATE INDEX idx_attachments_email ON attachments(email_id);
+CREATE INDEX idx_greylist_ip ON greylist(client_ip);
+CREATE INDEX idx_greylist_whitelisted ON greylist(whitelisted);
+CREATE INDEX idx_greylist_sender ON greylist(sender);
+CREATE INDEX idx_rate_violations_ip ON rate_limit_violations(client_ip);
+CREATE INDEX idx_rate_violations_time ON rate_limit_violations(timestamp);
