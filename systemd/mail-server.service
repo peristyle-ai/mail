@@ -5,18 +5,20 @@ Wants=postgresql.service
 
 [Service]
 Type=simple
-User=mal
-Group=mal
-WorkingDirectory=/opt/py_pg_accounts/git/py_pg_email
+# User and Group should be set based on your system
+# User=your-username
+# Group=your-group
+WorkingDirectory=PROJECT_ROOT
 Environment=FLASK_APP=run.py
 Environment=FLASK_ENV=production
-Environment=PYTHONPATH=/opt/py_pg_accounts/git/py_pg_email
-Environment=PATH=/opt/py_pg_accounts/git/py_pg_email/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=PROJECT_ROOT
+Environment=PATH=PROJECT_ROOT/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=DATABASE_URL=postgresql://localhost/mail_server
 Environment=JWT_SECRET=your-production-secret-key-change-this
+Environment=PROJECT_ROOT=PROJECT_ROOT
 
 # Use the startup script
-ExecStart=/opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
+ExecStart=PROJECT_ROOT/start_mail_server.sh
 
 # Restart policy
 Restart=always
@@ -32,7 +34,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=false
-ReadWritePaths=/opt/py_pg_accounts/git/py_pg_email/uploads /opt/py_pg_accounts/git/py_pg_email/logs
+ReadWritePaths=PROJECT_ROOT/uploads PROJECT_ROOT/logs
 
 [Install]
 WantedBy=multi-user.target

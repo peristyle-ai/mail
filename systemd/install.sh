@@ -4,8 +4,15 @@
 
 set -e
 
+# Allow PROJECT_ROOT to be set as environment variable, otherwise detect from script location
+if [ -z "$PROJECT_ROOT" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+
 echo "Installing Mail Server systemd service (system-level)..."
 echo "This will install to: /etc/systemd/system/"
+echo "Project root: $PROJECT_ROOT"
 echo ""
 
 # Check if running as root
@@ -15,31 +22,31 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Read JWT_SECRET from .env file
-if [ -f /opt/py_pg_accounts/git/py_pg_email/.env ]; then
-    JWT_SECRET=$(grep '^JWT_SECRET=' /opt/py_pg_accounts/git/py_pg_email/.env | cut -d '=' -f2)
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/.env" | cut -d '=' -f2)
     if [ -z "$JWT_SECRET" ]; then
         echo "Error: JWT_SECRET not found in .env file"
         exit 1
     fi
     echo "Using JWT_SECRET from .env file"
 else
-    echo "Error: .env file not found at /opt/py_pg_accounts/git/py_pg_email/.env"
+    echo "Error: .env file not found at $PROJECT_ROOT/.env"
     exit 1
 fi
 
-# Update service file with JWT_SECRET
-sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service
+# Update service file with JWT_SECRET and PROJECT_ROOT
+sed -i "s|PROJECT_ROOT=.*|PROJECT_ROOT=$PROJECT_ROOT|" "$PROJECT_ROOT/systemd/mail-server.service"
+sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" "$PROJECT_ROOT/systemd/mail-server.service"
 
 # Copy service file
-cp /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service /etc/systemd/system/
+cp "$PROJECT_ROOT/systemd/mail-server.service" /etc/systemd/system/
 
 # Make scripts executable
-chmod +x /opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
-chmod +x /opt/py_pg_accounts/git/py_pg_email/start_servers.py
+chmod +x "$PROJECT_ROOT/start_mail_server.sh"
+chmod +x "$PROJECT_ROOT/start_servers.py"
 
 # Create uploads directory with proper permissions
-mkdir -p /opt/py_pg_accounts/git/py_pg_email/uploads
-chown -R mal:mal /opt/py_pg_accounts/git/py_pg_email/uploads
+mkdir -p "$PROJECT_ROOT/uploads"
 
 # Reload systemd
 echo "Reloading systemd..."
