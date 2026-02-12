@@ -92,16 +92,21 @@ class TestRateLimiter:
         """Test cleanup of old email entries."""
         tracker = IPTracker()
         
-        # Add old entries
-        old_time = datetime.now() - timedelta(minutes=2)
-        tracker.emails_minute = [old_time]
-        tracker.emails_hour = [old_time]
+        # Add entries - one recent, one old
+        recent_time = datetime.now() - timedelta(seconds=30)  # 30 seconds ago
+        old_time = datetime.now() - timedelta(minutes=2)     # 2 minutes ago
+        tracker.emails_minute = [recent_time, old_time]
+        tracker.emails_hour = [recent_time, old_time]
         
         # Cleanup
         tracker._cleanup_old_entries()
         
-        assert len(tracker.emails_minute) == 0
-        assert len(tracker.emails_hour) == 0
+        # Minute list should only have recent (< 1 min old)
+        assert len(tracker.emails_minute) == 1
+        assert recent_time in tracker.emails_minute
+        
+        # Hour list should have both (< 1 hour old)
+        assert len(tracker.emails_hour) == 2
     
     def test_get_stats(self):
         """Test statistics retrieval."""
@@ -208,10 +213,16 @@ class TestGreylistManager:
         """Test whitelisted sender bypasses greylist."""
         greylist = GreylistManager(delay_minutes=5)
         
-        # Create entry and mark as whitelisted
+        # Clean up any existing entry first
         import psycopg2
         conn = psycopg2.connect('postgresql://postgres:1234@localhost:5432/mail_server_test')
         cursor = conn.cursor()
+        cursor.execute('''
+            DELETE FROM greylist 
+            WHERE client_ip = %s AND sender = %s AND recipient = %s
+        ''', ('192.168.1.1', 'sender@example.com', 'recipient@example.com'))
+        
+        # Create entry and mark as whitelisted
         cursor.execute('''
             INSERT INTO greylist (client_ip, sender, recipient, whitelisted)
             VALUES (%s, %s, %s, TRUE)
