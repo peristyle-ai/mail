@@ -1,0 +1,43 @@
+#!/bin/bash
+# Installation script for mail-server systemd service
+
+set -e
+
+echo "Installing Mail Server systemd service..."
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root (use sudo)"
+    exit 1
+fi
+
+# Copy service file
+cp /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service /etc/systemd/system/
+
+# Make scripts executable
+chmod +x /opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
+chmod +x /opt/py_pg_accounts/git/py_pg_email/start_servers.py
+
+# Create uploads directory with proper permissions
+mkdir -p /opt/py_pg_accounts/git/py_pg_email/uploads
+chown -R mal:mal /opt/py_pg_accounts/git/py_pg_email/uploads
+
+# Reload systemd
+echo "Reloading systemd..."
+systemctl daemon-reload
+
+# Enable service to start on boot
+echo "Enabling mail-server service..."
+systemctl enable mail-server.service
+
+echo ""
+echo "Installation complete!"
+echo ""
+echo "Commands:"
+echo "  sudo systemctl start mail-server    # Start the service"
+echo "  sudo systemctl stop mail-server       # Stop the service"
+echo "  sudo systemctl restart mail-server    # Restart the service"
+echo "  sudo systemctl status mail-server     # Check status"
+echo "  sudo journalctl -u mail-server -f   # View logs"
+echo ""
+echo "The service will automatically start on boot."
