@@ -14,6 +14,22 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Read JWT_SECRET from .env file
+if [ -f /opt/py_pg_accounts/git/py_pg_email/.env ]; then
+    JWT_SECRET=$(grep '^JWT_SECRET=' /opt/py_pg_accounts/git/py_pg_email/.env | cut -d '=' -f2)
+    if [ -z "$JWT_SECRET" ]; then
+        echo "Error: JWT_SECRET not found in .env file"
+        exit 1
+    fi
+    echo "Using JWT_SECRET from .env file"
+else
+    echo "Error: .env file not found at /opt/py_pg_accounts/git/py_pg_email/.env"
+    exit 1
+fi
+
+# Update service file with JWT_SECRET
+sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service
+
 # Copy service file
 cp /opt/py_pg_accounts/git/py_pg_email/systemd/mail-server.service /etc/systemd/system/
 
