@@ -1,121 +1,210 @@
-## Phase 6: Add SMTP Server for Receiving Real Emails
+## Phase 7: SMTP Security Suite - Rate Limiting, SPF, Greylisting, and TLS
 
 ## Overview
-Add SMTP server capability using aiosmtpd to receive real emails from the internet and store them in PostgreSQL.
+Implement comprehensive security measures before opening SMTP server to the internet.
 
-## Architecture
+## Security Components
 
-### Components:
-1. **SMTP Server** (aiosmtpd) - Receives emails on port 25/587
-2. **Email Handler** - Parses incoming emails and stores in database
-3. **Flask API** - Serves existing REST API for email management (port 5000)
-4. **Test Scripts** - For testing from another computer
+### 1. Rate Limiting
+**Purpose:** Prevent abuse, spam floods, and DoS attacks
 
-### Flow:
+**Implementation:**
+- Track connections per IP address
+- Limit concurrent connections per IP (max 10)
+- Limit emails per minute per IP (max 30)
+- Limit emails per hour per IP (max 100)
+- Automatic IP blocking after repeated violations
+- In-memory storage with automatic cleanup
+
+**Files:**
+- `smtp_server/security/rate_limiter.py` - Rate limiting logic
+- Updates to `smtp_server/handler.py` - Integration
+
+### 2. SPF (Sender Policy Framework) Validation
+**Purpose:** Prevent email spoofing and verify sender authorization
+
+**Implementation:**
+- Parse sender domain from MAIL FROM
+- Query DNS for SPF records
+- Validate sending IP against SPF policy
+- Handle SPF results: pass, fail, neutral, softfail, none
+- Reject or flag emails that fail SPF hardfail
+- Log SPF results for monitoring
+
+**Files:**
+- `smtp_server/security/spf_validator.py` - SPF checking logic
+- Updates to `smtp_server/handler.py` - Integration
+
+**Dependencies:**
+- `pyspf` or `spflib` library for SPF validation
+- DNS resolution (dnspython)
+
+### 3. Greylisting
+**Purpose:** Reduce spam by temporarily rejecting unknown senders
+
+**Implementation:**
+- Track triplets: (client_ip, sender, recipient)
+- First-time senders: reject with temporary error (4xx)
+- Legitimate servers retry after 5-15 minutes
+- Spammers often don't retry
+- Whitelist after successful delivery
+- Automatic expiration of greylist entries (24 hours)
+
+**Files:**
+- `smtp_server/security/greylist.py` - Greylisting logic
+- Updates to `smtp_server/handler.py` - Integration
+- Database table for greylist tracking
+
+### 4. TLS/SSL Encryption
+**Purpose:** Encrypt SMTP traffic to prevent eavesdropping
+
+**Implementation:**
+- Support SMTPS (port 465) - TLS from start
+- Support STARTTLS (port 587) - upgrade to TLS
+- Self-signed certificate generation for testing
+- Support for Let's Encrypt certificates
+- Force TLS for authentication (optional)
+- Graceful fallback to plaintext for legacy clients (optional)
+
+**Files:**
+- `smtp_server/security/tls_config.py` - TLS configuration
+- Updates to `smtp_server/server.py` - TLS support
+- Certificate generation scripts
+
+**Dependencies:**
+- `ssl` module (built-in)
+- `cryptography` library for cert generation
+
+## Database Schema Updates
+
+### New Table: Greylist
+```sql
+CREATE TABLE greylist (
+    id SERIAL PRIMARY KEY,
+    client_ip INET NOT NULL,
+    sender VARCHAR(255) NOT NULL,
+    recipient VARCHAR(255) NOT NULL,
+    first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    retry_count INTEGER DEFAULT 0,
+    whitelisted BOOLEAN DEFAULT FALSE,
+    UNIQUE(client_ip, sender, recipient)
+);
+
+CREATE INDEX idx_greylist_ip ON greylist(client_ip);
+CREATE INDEX idx_greylist_whitelisted ON greylist(whitelisted);
 ```
-External Email Client/Sender
-        |
-        v
-    Port 587 (SMTP)
-        |
-        v
-   aiosmtpd Server
-        |
-        v
-   Email Handler
-        |
-        v
-   PostgreSQL Database
-        |
-        v
-   Flask REST API (Port 5000)
+
+### New Table: Rate Limit Log
+```sql
+CREATE TABLE rate_limit_violations (
+    id SERIAL PRIMARY KEY,
+    client_ip INET NOT NULL,
+    violation_type VARCHAR(50) NOT NULL,
+    count INTEGER DEFAULT 1,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_rate_violations_ip ON rate_limit_violations(client_ip);
+CREATE INDEX idx_rate_violations_time ON rate_limit_violations(timestamp);
 ```
 
-## Implementation Steps
+## Configuration
 
-### Step 1: Install Dependencies
-- Install aiosmtpd for SMTP server functionality
-- Add to requirements.txt
-
-### Step 2: Create SMTP Server Module
-**Files to create:**
-- `smtp_server/__init__.py` - Package initialization
-- `smtp_server/handler.py` - SMTP message handler
-- `smtp_server/server.py` - SMTP server setup
-- `smtp_server/email_storage.py` - Store emails in database
-
-### Step 3: Update Database Schema
-- Add support for incoming email fields
-- Store raw email headers
-- Support multiple recipients
-
-### Step 4: Create Test Script
-- `scripts/send_test_email.py` - Script for other computer (192.168.4.x)
-- Can send via SMTP to 192.168.4.30:587
-
-### Step 5: Create Startup Script
-- `start_servers.py` - Starts both Flask and SMTP servers
-- Manage both processes
-
-### Step 6: Network Configuration
-- Document port forwarding for internet access
-- Firewall configuration
-- Testing from external sources
-
-## Network Setup
-
-### Local Network Test:
+### Environment Variables
 ```
-Flask Server: 192.168.4.30 (ports 5000, 587)
-Test Computer: 192.168.4.x
+# Security Settings
+SMTP_RATE_LIMIT_ENABLED=true
+SMTP_RATE_LIMIT_MAX_CONNECTIONS=10
+SMTP_RATE_LIMIT_MAX_EMAILS_PER_MINUTE=30
+SMTP_RATE_LIMIT_MAX_EMAILS_PER_HOUR=100
+
+SMTP_SPF_ENABLED=true
+SMTP_SPF_REJECT_FAIL=true
+
+SMTP_GREYLIST_ENABLED=true
+SMTP_GREYLIST_DELAY_MINUTES=5
+SMTP_GREYLIST_WHITELIST_DAYS=30
+
+SMTP_TLS_ENABLED=true
+SMTP_TLS_CERT_PATH=/path/to/cert.pem
+SMTP_TLS_KEY_PATH=/path/to/key.pem
+SMTP_TLS_FORCE=false
 ```
 
-### Ports:
-- **5000**: Flask API (existing)
-- **587**: SMTP Submission (new, for receiving emails)
-- **25**: SMTP (optional, often blocked by ISPs)
+## Implementation Plan
 
-### Port Forwarding for Internet:
-1. Router: Forward external 587 → 192.168.4.30:587
-2. Firewall: Allow incoming TCP on port 587
-3. For production: Set up MX record in DNS
+### Step 1: Core Security Module Structure
+- Create `smtp_server/security/__init__.py`
+- Create base security manager class
+- Create configuration handler
 
-## Testing Plan
+### Step 2: Rate Limiting
+- Implement connection tracking per IP
+- Implement rate limit checks
+- Add enforcement to SMTP handler
+- Add tests
 
-### Phase 1: Local Test
-1. Start SMTP server on Flask machine
-2. Send test email using script on same machine
-3. Verify email appears in database
-4. Verify email appears in API
+### Step 3: SPF Validation
+- Install pyspf/dnspython
+- Implement SPF checking
+- Add enforcement to SMTP handler
+- Add tests
 
-### Phase 2: Network Test
-1. Run test script from other computer (192.168.4.x)
-2. Send email to the operator@example.com.au
-3. Verify receipt in database
+### Step 4: Greylisting
+- Create database table
+- Implement greylist logic
+- Add enforcement to SMTP handler
+- Add tests
 
-### Phase 3: Internet Test
-1. Configure port forwarding
-2. Send email from external service (Gmail, etc.)
-3. Verify receipt
+### Step 5: TLS/SSL
+- Generate self-signed certificate
+- Implement TLS wrapper
+- Update SMTP server to support STARTTLS
+- Add tests
 
-## Files to Create
-1. `smtp_server/__init__.py`
-2. `smtp_server/handler.py`
-3. `smtp_server/server.py`
-4. `smtp_server/email_storage.py`
-5. `scripts/send_test_email.py`
-6. `start_servers.py`
-7. `SMTP_SETUP.md`
+### Step 6: Integration
+- Update `start_servers.py` with security options
+- Create security configuration documentation
+- Add comprehensive integration tests
 
-## Security Considerations
-- No authentication needed for incoming (standard SMTP)
-- Rate limiting to prevent spam
-- Spam filtering (optional)
-- TLS/SSL encryption (recommended for production)
+### Step 7: Testing
+- Test rate limiting with multiple connections
+- Test SPF validation with various domains
+- Test greylisting with first-time senders
+- Test TLS encryption
+- Test all security features together
+
+## Files to Create/Modify
+
+**New Files:**
+1. `smtp_server/security/__init__.py`
+2. `smtp_server/security/rate_limiter.py`
+3. `smtp_server/security/spf_validator.py`
+4. `smtp_server/security/greylist.py`
+5. `smtp_server/security/tls_config.py`
+6. `scripts/generate_tls_cert.py`
+7. `SECURITY.md` - Security configuration guide
+
+**Modified Files:**
+1. `smtp_server/handler.py` - Add security checks
+2. `smtp_server/server.py` - Add TLS support
+3. `db/schema.sql` - Add greylist table
+4. `requirements.txt` - Add security dependencies
+5. `start_servers.py` - Add security configuration
+
+## Success Criteria
+- [ ] Rate limiting prevents abuse (tested with >30 emails/min)
+- [ ] SPF validation correctly identifies spoofed emails
+- [ ] Greylisting reduces spam (80% reduction target)
+- [ ] TLS encryption works on ports 465/587
+- [ ] All security features configurable via environment variables
+- [ ] Tests pass for all security components
+- [ ] Documentation complete
 
 ## Estimated Time
-- SMTP module: 40 minutes
-- Database updates: 15 minutes
-- Test scripts: 15 minutes
-- Testing: 20 minutes
-- **Total: ~90 minutes**
+- Step 1-2 (Rate Limiting): 45 minutes
+- Step 3 (SPF): 30 minutes
+- Step 4 (Greylisting): 45 minutes
+- Step 5 (TLS): 60 minutes
+- Step 6-7 (Integration & Testing): 45 minutes
+- **Total: ~3.5-4 hours**
