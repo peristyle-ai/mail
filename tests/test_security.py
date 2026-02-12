@@ -182,6 +182,18 @@ class TestGreylistManager:
     
     def test_new_sender_greylisted(self, db):
         """Test new sender is greylisted."""
+        # Clean up any existing entries first
+        import psycopg2
+        conn = psycopg2.connect('postgresql://postgres:1234@localhost:5432/mail_server_test')
+        cursor = conn.cursor()
+        cursor.execute('''
+            DELETE FROM greylist 
+            WHERE client_ip = %s AND sender = %s AND recipient = %s
+        ''', ('192.168.1.1', 'sender@example.com', 'recipient@example.com'))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
         greylist = GreylistManager(delay_minutes=5)
         
         allowed, reason = greylist.check_sender(
@@ -190,7 +202,7 @@ class TestGreylistManager:
             'recipient@example.com'
         )
         
-        assert not allowed
+        assert not allowed, f"Expected greylisted but got allowed={allowed}, reason={reason}"
         assert 'Greylisted' in reason
     
     def test_retry_after_delay_allowed(self, db):
