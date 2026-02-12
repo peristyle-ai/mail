@@ -27,13 +27,16 @@ class TLSConfig:
         key_path: str = None,
         force_tls: bool = False
     ):
+        # Get project root from environment or use current working directory
+        project_root = os.getenv('PROJECT_ROOT', os.getcwd())
+        
         self.cert_path = cert_path or os.getenv(
             'SMTP_TLS_CERT_PATH',
-            '/opt/py_pg_accounts/git/py_pg_email/certs/server.crt'
+            os.path.join(project_root, 'certs', 'server.crt')
         )
         self.key_path = key_path or os.getenv(
             'SMTP_TLS_KEY_PATH',
-            '/opt/py_pg_accounts/git/py_pg_email/certs/server.key'
+            os.path.join(project_root, 'certs', 'server.key')
         )
         self.force_tls = force_tls or os.getenv('SMTP_TLS_FORCE', 'false').lower() == 'true'
         

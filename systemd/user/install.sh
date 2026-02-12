@@ -3,36 +3,41 @@
 
 set -e
 
+# Detect project root from script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
 echo "Installing Mail Server systemd user service..."
+echo "Project root: $PROJECT_ROOT"
 
 # Read JWT_SECRET from .env file
-if [ -f ~/git/py_pg_email/.env ]; then
-    JWT_SECRET=$(grep '^JWT_SECRET=' ~/git/py_pg_email/.env | cut -d '=' -f2)
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/.env" | cut -d '=' -f2)
     if [ -z "$JWT_SECRET" ]; then
         echo "Error: JWT_SECRET not found in .env file"
         exit 1
     fi
     echo "Using JWT_SECRET from .env file"
 else
-    echo "Error: .env file not found at ~/git/py_pg_email/.env"
+    echo "Error: .env file not found at $PROJECT_ROOT/.env"
     exit 1
 fi
 
 # Update service file with JWT_SECRET
-sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" ~/git/py_pg_email/systemd/user/mail-server.service
+sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" "$PROJECT_ROOT/systemd/user/mail-server.service"
 
 # Create systemd user directory if it doesn't exist
 mkdir -p ~/.config/systemd/user
 
 # Copy service file
-cp /opt/py_pg_accounts/git/py_pg_email/systemd/user/mail-server.service ~/.config/systemd/user/
+cp "$PROJECT_ROOT/systemd/user/mail-server.service" ~/.config/systemd/user/
 
 # Make scripts executable
-chmod +x /opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
-chmod +x /opt/py_pg_accounts/git/py_pg_email/start_servers.py
+chmod +x "$PROJECT_ROOT/start_mail_server.sh"
+chmod +x "$PROJECT_ROOT/start_servers.py"
 
 # Create uploads directory if it doesn't exist
-mkdir -p /opt/py_pg_accounts/git/py_pg_email/uploads
+mkdir -p "$PROJECT_ROOT/uploads"
 
 # Reload systemd user daemon
 echo "Reloading systemd user daemon..."
