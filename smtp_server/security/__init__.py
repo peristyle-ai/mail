@@ -1,0 +1,75 @@
+"""
+SMTP Server Security Module
+
+Provides security features for the SMTP server:
+- Rate limiting to prevent abuse
+- SPF validation to prevent spoofing
+- Greylisting to reduce spam
+- TLS/SSL encryption for secure connections
+"""
+
+import os
+from typing import Optional
+
+
+class SecurityConfig:
+    """Configuration for SMTP security features."""
+    
+    def __init__(self):
+        # Rate limiting settings
+        self.rate_limit_enabled = os.getenv('SMTP_RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+        self.rate_limit_max_connections = int(os.getenv('SMTP_RATE_LIMIT_MAX_CONNECTIONS', '10'))
+        self.rate_limit_max_emails_per_minute = int(os.getenv('SMTP_RATE_LIMIT_MAX_EMAILS_PER_MINUTE', '30'))
+        self.rate_limit_max_emails_per_hour = int(os.getenv('SMTP_RATE_LIMIT_MAX_EMAILS_PER_HOUR', '100'))
+        
+        # SPF settings
+        self.spf_enabled = os.getenv('SMTP_SPF_ENABLED', 'true').lower() == 'true'
+        self.spf_reject_fail = os.getenv('SMTP_SPF_REJECT_FAIL', 'true').lower() == 'true'
+        
+        # Greylisting settings
+        self.greylist_enabled = os.getenv('SMTP_GREYLIST_ENABLED', 'true').lower() == 'true'
+        self.greylist_delay_minutes = int(os.getenv('SMTP_GREYLIST_DELAY_MINUTES', '5'))
+        self.greylist_whitelist_days = int(os.getenv('SMTP_GREYLIST_WHITELIST_DAYS', '30'))
+        
+        # TLS settings
+        self.tls_enabled = os.getenv('SMTP_TLS_ENABLED', 'true').lower() == 'true'
+        self.tls_cert_path = os.getenv('SMTP_TLS_CERT_PATH', '/opt/py_pg_accounts/git/py_pg_email/certs/server.crt')
+        self.tls_key_path = os.getenv('SMTP_TLS_KEY_PATH', '/opt/py_pg_accounts/git/py_pg_email/certs/server.key')
+        self.tls_force = os.getenv('SMTP_TLS_FORCE', 'false').lower() == 'true'
+    
+    def __str__(self):
+        """Return configuration summary."""
+        return (
+            f"SecurityConfig:\n"
+            f"  Rate Limit: {'enabled' if self.rate_limit_enabled else 'disabled'}\n"
+            f"    - Max connections: {self.rate_limit_max_connections}\n"
+            f"    - Max emails/min: {self.rate_limit_max_emails_per_minute}\n"
+            f"    - Max emails/hour: {self.rate_limit_max_emails_per_hour}\n"
+            f"  SPF: {'enabled' if self.spf_enabled else 'disabled'}\n"
+            f"    - Reject on fail: {self.spf_reject_fail}\n"
+            f"  Greylisting: {'enabled' if self.greylist_enabled else 'disabled'}\n"
+            f"    - Delay: {self.greylist_delay_minutes} minutes\n"
+            f"    - Whitelist duration: {self.greylist_whitelist_days} days\n"
+            f"  TLS: {'enabled' if self.tls_enabled else 'disabled'}\n"
+            f"    - Force TLS: {self.tls_force}\n"
+            f"    - Cert: {self.tls_cert_path}\n"
+            f"    - Key: {self.tls_key_path}"
+        )
+
+
+# Global configuration instance
+security_config = SecurityConfig()
+
+from .rate_limiter import RateLimiter
+from .spf_validator import SPFValidator
+from .greylist import GreylistManager
+from .tls_config import TLSConfig
+
+__all__ = [
+    'SecurityConfig',
+    'security_config',
+    'RateLimiter',
+    'SPFValidator',
+    'GreylistManager',
+    'TLSConfig'
+]
