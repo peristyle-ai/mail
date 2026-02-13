@@ -14,6 +14,11 @@ This will start:
 - **SMTP Server** on port 2525 (receives emails)
 - **Flask API** on port 5000 (REST API + Swagger UI)
 
+**Note:** If testing from another computer on your network, ensure the firewall allows port 2525:
+```bash
+sudo ufw allow 2525/tcp
+```
+
 ### 2. Test from Same Computer
 
 Open a new terminal:

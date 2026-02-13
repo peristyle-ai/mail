@@ -81,8 +81,24 @@ This creates all necessary tables (users, folders, emails, attachments, etc.).
 
 ### 6. Run the Server
 
+**Option A: Flask API only (development)**
 ```bash
 flask run
+```
+
+**Option B: Both Flask API + SMTP Server (recommended)**
+```bash
+python start_servers.py
+```
+
+This starts:
+- Flask API on `http://localhost:5000`
+- SMTP Server on port 2525
+
+**Firewall Configuration** (if accessing from other computers):
+```bash
+sudo ufw allow 2525/tcp  # For SMTP server
+sudo ufw allow 5000/tcp  # For Flask API (optional)
 ```
 
 The server will start on `http://localhost:5000`
