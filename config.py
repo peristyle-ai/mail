@@ -9,6 +9,16 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    PROJECT_ROOT = Path(__file__).parent
+    ENV_FILE = PROJECT_ROOT / '.env'
+    if ENV_FILE.exists():
+        load_dotenv(ENV_FILE)
+except ImportError:
+    pass  # python-dotenv not installed, env vars must be set manually
+
 # Project root directory - this file is in the project root
 PROJECT_ROOT = Path(__file__).parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / 'config.yaml'
@@ -97,8 +107,18 @@ class MailServerConfig:
         
         This is crucial for reverse DNS (PTR) validation.
         Should match your reverse DNS record.
+        Uses DOMAIN env var if SMTP_HOSTNAME not set.
         """
-        return os.getenv('SMTP_HOSTNAME', self._get_nested('smtp', 'hostname', default='localhost'))
+        hostname = os.getenv('SMTP_HOSTNAME')
+        if hostname:
+            return hostname
+        
+        # Fall back to DOMAIN env var
+        domain = self.domain
+        if domain and domain != 'localhost':
+            return domain
+        
+        return self._get_nested('smtp', 'hostname', default='localhost')
     
     @property
     def smtp_debug(self) -> bool:
@@ -128,15 +148,71 @@ class MailServerConfig:
     
     @property
     def outbound_default_from(self) -> str:
-        """Default from address for outbound emails."""
-        return os.getenv('OUTBOUND_DEFAULT_FROM',
-                        self._get_nested('outbound', 'default_from', default='noreply@localhost'))
+        """
+        Default from address for outbound emails.
+        
+        Uses OUTBOUND_DEFAULT_FROM env var, or constructs from DOMAIN.
+        """
+        from_addr = os.getenv('OUTBOUND_DEFAULT_FROM')
+        if from_addr:
+            return from_addr
+        
+        # Fall back to DOMAIN env var
+        domain = self.domain
+        if domain and domain != 'localhost':
+            return f"noreply@{domain}"
+        
+        return self._get_nested('outbound', 'default_from', default='noreply@localhost')
     
     @property
     def outbound_reply_to(self) -> str:
         """Reply-to address for outbound emails."""
-        return os.getenv('OUTBOUND_REPLY_TO',
-                        self._get_nested('outbound', 'reply_to', default=''))
+        reply_to = os.getenv('OUTBOUND_REPLY_TO')
+        if reply_to:
+            return reply_to
+        
+        # If not set, construct from domain
+        domain = self.domain
+        if domain and domain != 'localhost':
+            return f"admin@{domain}"
+        return self._get_nested('outbound', 'reply_to', default='')
+    
+    # Domain Settings
+    @property
+    def domain(self) -> str:
+        """
+        Domain name for this mail server.
+        
+        Used for constructing email addresses and reverse DNS validation.
+        """
+        return os.getenv('DOMAIN', 'localhost')
+    
+    @property
+    def static_ip(self) -> str:
+        """
+        Static public IP address of this server.
+        
+        Used for reverse DNS (PTR) validation and SPF records.
+        """
+        return os.getenv('STATIC_IP', '')
+    
+    @property
+    def local_test_email(self) -> str:
+        """
+        Local test email address for internal testing.
+        
+        Should be an address on your domain.
+        """
+        return os.getenv('LOCAL_TEST_EMAIL', f"test@{self.domain}")
+    
+    @property
+    def external_test_email(self) -> str:
+        """
+        External test email address for outbound delivery testing.
+        
+        Should be an external address like Gmail for testing delivery.
+        """
+        return os.getenv('EXTERNAL_TEST_EMAIL', 'external-test@example.com')
     
     # Security Settings
     @property
@@ -253,6 +329,10 @@ class MailServerConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
         return {
+            'domain': self.domain,
+            'static_ip': self.static_ip,
+            'local_test_email': self.local_test_email,
+            'external_test_email': self.external_test_email,
             'smtp': {
                 'host': self.smtp_host,
                 'port': self.smtp_port,
@@ -300,6 +380,12 @@ class MailServerConfig:
         """Return string representation of configuration."""
         lines = [
             "Mail Server Configuration:",
+            "",
+            f"Domain Settings:",
+            f"  Domain: {self.domain}",
+            f"  Static IP: {self.static_ip or '(not set)'}",
+            f"  Local Test: {self.local_test_email}",
+            f"  External Test: {self.external_test_email}",
             "",
             f"SMTP Server:",
             f"  Host: {self.smtp_host}:{self.smtp_port}",

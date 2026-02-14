@@ -4,7 +4,7 @@ Test script to verify reverse DNS (PTR record) configuration.
 
 Usage:
     python test_reverse_dns.py
-    python test_reverse_dns.py --external-to payroll@example.com
+    python test_reverse_dns.py --external-to user@example.com
 
 This script sends TWO test emails:
 1. LOCAL TEST: Send to your own domain (stored in mail server database)
@@ -15,6 +15,10 @@ This script sends TWO test emails:
    - Confirms outbound email delivery works
    - Allows checking reverse DNS (PTR) in external mail headers
    - Shows how external servers see your mail server
+
+Configure test recipients in your .env file:
+  LOCAL_TEST_EMAIL=test@yourdomain.com
+  EXTERNAL_TEST_EMAIL=external-test@example.com
 
 The external recipient can check email headers to verify reverse DNS configuration.
 """
@@ -215,8 +219,8 @@ def send_test_email(server_host, server_port, server_name, from_address, to_addr
 		return False, str(e)
 
 
-def test_reverse_dns(local_to='the operator@example.com.au',
-					 external_to='payroll@example.com',
+def test_reverse_dns(local_to=None,
+					 external_to=None,
 					 from_address=None, 
 					 server_host=None, 
 					 server_port=None,
@@ -248,6 +252,10 @@ def test_reverse_dns(local_to='the operator@example.com.au',
 	config = get_config()
 	
 	# Use config defaults
+	if local_to is None:
+		local_to = config.local_test_email
+	if external_to is None:
+		external_to = config.external_test_email
 	if from_address is None:
 		from_address = config.outbound_default_from
 	if server_host is None:
@@ -322,7 +330,7 @@ def test_reverse_dns(local_to='the operator@example.com.au',
 			print("3. Look for the first 'Received:' header")
 			print(f"4. It should show: from {server_name} [{public_ip}]")
 			print()
-			print("If you see just the IP in brackets [144.6.112.4]:")
+			print(f"If you see just the IP in brackets [{public_ip or 'YOUR_IP'}]:")
 			print("  → Contact your ISP to set up reverse DNS (PTR record)")
 			results['external'] = True
 		else:
@@ -371,7 +379,7 @@ if __name__ == '__main__':
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog=f"""
 Examples:
-  # Run both tests (local + external to Gmail)
+  # Run both tests (uses values from .env/config)
   python scripts/test_reverse_dns.py
   
   # Test with custom external recipient
@@ -381,25 +389,28 @@ Examples:
   python scripts/test_reverse_dns.py --skip-external
   
   # Custom sender and server
-  python scripts/test_reverse_dns.py --from admin@example.com.au --server 192.168.4.30
+  python scripts/test_reverse_dns.py --from admin@{config.domain} --server {config.outbound_server_host}
 
-Current Configuration (from config.yaml):
+Current Configuration:
+  Domain: {config.domain}
   EHLO/HELO Hostname: {config.smtp_hostname}
   Outbound Server: {config.outbound_server_host}:{config.outbound_server_port}
   Default From: {config.outbound_default_from}
+  Local Test: {config.local_test_email}
+  External Test: {config.external_test_email}
         """
 	)
 	
 	parser.add_argument(
 		'--local-to',
-		default='the operator@example.com.au',
-		help=f'Local recipient for internal test (stored in database) (default: the operator@example.com.au)'
+		default=None,
+		help=f'Local recipient for internal test (stored in database) (default: {config.local_test_email})'
 	)
 	
 	parser.add_argument(
 		'--external-to',
-		default='payroll@example.com',
-		help=f'External recipient for outbound test (default: payroll@example.com)'
+		default=None,
+		help=f'External recipient for outbound test (default: {config.external_test_email})'
 	)
 	
 	parser.add_argument(
