@@ -10,21 +10,32 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 echo "Installing Mail Server systemd user service..."
 echo "Project root: $PROJECT_ROOT"
 
-# Read JWT_SECRET from .env file
+# Read environment variables from .env file
 if [ -f "$PROJECT_ROOT/.env" ]; then
     JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/.env" | cut -d '=' -f2)
+    DATABASE_URL=$(grep '^DATABASE_URL=' "$PROJECT_ROOT/.env" | cut -d '=' -f2-)
+    
     if [ -z "$JWT_SECRET" ]; then
         echo "Error: JWT_SECRET not found in .env file"
         exit 1
     fi
-    echo "Using JWT_SECRET from .env file"
+    if [ -z "$DATABASE_URL" ]; then
+        echo "Error: DATABASE_URL not found in .env file"
+        exit 1
+    fi
+    echo "Using JWT_SECRET and DATABASE_URL from .env file"
 else
     echo "Error: .env file not found at $PROJECT_ROOT/.env"
     exit 1
 fi
 
-# Update service file with JWT_SECRET
-sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" "$PROJECT_ROOT/systemd/user/mail-server.service"
+# Escape special characters for sed
+ESCAPED_JWT_SECRET=$(echo "$JWT_SECRET" | sed 's/[&/\]/\\&/g')
+ESCAPED_DATABASE_URL=$(echo "$DATABASE_URL" | sed 's/[&/\]/\\&/g')
+
+# Update service file with environment variables
+sed -i "s|JWT_SECRET=.*|JWT_SECRET=${ESCAPED_JWT_SECRET}|" "$PROJECT_ROOT/systemd/user/mail-server.service"
+sed -i "s|DATABASE_URL=.*|DATABASE_URL=${ESCAPED_DATABASE_URL}|" "$PROJECT_ROOT/systemd/user/mail-server.service"
 
 # Create systemd user directory if it doesn't exist
 mkdir -p ~/.config/systemd/user

@@ -128,39 +128,45 @@ class TestSPFValidator:
         spf = SPFValidator(reject_on_fail=True)
         assert spf.reject_on_fail is True
     
+    @patch('smtp_server.security.spf_validator.SPFValidator._is_internal_ip')
     @patch('smtp_server.security.spf_validator.dns.resolver.resolve')
-    def test_spf_no_record(self, mock_resolve):
+    def test_spf_no_record(self, mock_resolve, mock_is_internal):
         """Test SPF validation when no SPF record exists."""
+        mock_is_internal.return_value = False
         mock_resolve.side_effect = Exception("No answer")
         
         spf = SPFValidator()
-        result, explanation = spf.validate('192.168.1.1', 'test@example.com')
+        result, explanation = spf.validate('203.0.113.1', 'test@example.com')
         
         assert result == 'none'
     
+    @patch('smtp_server.security.spf_validator.SPFValidator._is_internal_ip')
     @patch('smtp_server.security.spf_validator.dns.resolver.resolve')
-    def test_spf_pass(self, mock_resolve):
+    def test_spf_pass(self, mock_resolve, mock_is_internal):
         """Test SPF validation passes for authorized IP."""
+        mock_is_internal.return_value = False
         # Mock TXT record with SPF
         mock_rdata = MagicMock()
-        mock_rdata.strings = [b'v=spf1 ip4:192.168.1.1 -all']
+        mock_rdata.strings = [b'v=spf1 ip4:203.0.113.1 -all']
         mock_resolve.return_value = [mock_rdata]
         
         spf = SPFValidator()
-        result, explanation = spf.validate('192.168.1.1', 'test@example.com')
+        result, explanation = spf.validate('203.0.113.1', 'test@example.com')
         
         assert result == 'pass'
     
+    @patch('smtp_server.security.spf_validator.SPFValidator._is_internal_ip')
     @patch('smtp_server.security.spf_validator.dns.resolver.resolve')
-    def test_spf_fail(self, mock_resolve):
+    def test_spf_fail(self, mock_resolve, mock_is_internal):
         """Test SPF validation fails for unauthorized IP."""
+        mock_is_internal.return_value = False
         # Mock TXT record that doesn't match
         mock_rdata = MagicMock()
-        mock_rdata.strings = [b'v=spf1 ip4:10.0.0.1 -all']
+        mock_rdata.strings = [b'v=spf1 ip4:203.0.113.100 -all']
         mock_resolve.return_value = [mock_rdata]
         
         spf = SPFValidator()
-        result, explanation = spf.validate('192.168.1.1', 'test@example.com')
+        result, explanation = spf.validate('203.0.113.1', 'test@example.com')
         
         assert result == 'fail'
     
