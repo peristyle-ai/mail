@@ -166,15 +166,25 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             user = cursor.fetchone()
         
         if not user:
-            logger.warning(f"No user found for recipient: {recipient}")
-            # For testing, create a default user if none exists
-            cursor.execute(
-                'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
-                (recipient, 'test_hash', recipient.split('@')[0], datetime.now(timezone.utc))
-            )
-            user = cursor.fetchone()
-            conn.commit()
-            logger.info(f"Created user {recipient} with ID {user['id']}")
+            # Only create users for local domain addresses
+            local_domains = ['example.com.au', 'localhost', 'example.com']
+            recipient_domain = recipient.split('@')[-1].lower() if '@' in recipient else ''
+            
+            if recipient_domain in local_domains:
+                logger.info(f"Creating local user for: {recipient}")
+                cursor.execute(
+                    'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
+                    (recipient, 'test_hash', recipient.split('@')[0], datetime.now(timezone.utc))
+                )
+                user = cursor.fetchone()
+                conn.commit()
+                logger.info(f"Created user {recipient} with ID {user['id']}")
+            else:
+                logger.warning(f"No user found for recipient: {recipient}")
+                logger.warning(f"Domain {recipient_domain} is not local. Email rejected.")
+                cursor.close()
+                conn.close()
+                return None
         
         user_id = user['id']
         

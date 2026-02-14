@@ -20,4 +20,4 @@ export PYTHONPATH="$PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/logs"
 
 # Start both servers using the combined startup script
-exec python start_servers.py --flask-port 5000 --smtp-port 2525
+exec python start_servers.py --flask-port 5003 --smtp-port 2525

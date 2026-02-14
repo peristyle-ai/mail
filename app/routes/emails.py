@@ -1,8 +1,10 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
+import logging
 
 bp = Blueprint('emails', __name__)
+logger = logging.getLogger(__name__)
 
 @bp.route('/api/emails', methods=['GET'])
 @token_required
@@ -125,15 +127,122 @@ def create_email():
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
+	
+	# Get sender's email
+	cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
+	sender_row = cursor.fetchone()
+	if not sender_row:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Sender not found'}), 400
+	from_address = sender_row['email']
+	
+	# Handle recipients
+	recipients = data.get('to')
+	local_recipients = []
+	external_recipients = []
+	
+	if recipients:
+		if isinstance(recipients, str):
+			recipients = [recipients]
+		for recipient_email in recipients:
+			cursor.execute('SELECT id FROM users WHERE email = %s', (recipient_email,))
+			recipient_user = cursor.fetchone()
+			if recipient_user:
+				local_recipients.append((recipient_email, recipient_user['id']))
+			else:
+				external_recipients.append(recipient_email)
+	
+	# For external-only emails, use queue_outbound_email directly
+	# This creates email in Sent folder and queues for delivery
+	if external_recipients and not local_recipients:
+		cursor.close()
+		conn.close()
+		
+		from email.message import EmailMessage as EM
+		from smtp_server.outbound.storage import queue_outbound_email
+		
+		msg = EM()
+		msg['Subject'] = data.get('subject', '')
+		msg['From'] = from_address
+		if external_recipients:
+			msg['To'] = ', '.join(external_recipients)
+		msg.set_content(data.get('body', ''))
+		
+		try:
+			email_id, queue_ids = queue_outbound_email(
+				sender_id=request.current_user['id'],
+				from_address=from_address,
+				to_addresses=external_recipients,
+				subject=data.get('subject', ''),
+				body=data.get('body', ''),
+				message=msg,
+				headers=dict(msg.items())
+			)
+			return jsonify({'id': email_id, 'queued': len(queue_ids) > 0}), 201
+		except Exception as e:
+			logger.error(f"Error queueing outbound email: {e}")
+			return jsonify({'error': str(e)}), 500
+	
+	# For local recipients (or mixed), create email normally
+	# Get or validate folder_id
 	folder_id = data.get('folder_id')
+	if not folder_id:
+		cursor.execute(
+			'SELECT id FROM folders WHERE user_id = %s AND name = %s',
+			(request.current_user['id'], 'Inbox')
+		)
+		folder = cursor.fetchone()
+		if folder:
+			folder_id = folder['id']
+		else:
+			cursor.execute(
+				'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+				(request.current_user['id'], 'Inbox')
+			)
+			folder_id = cursor.fetchone()['id']
+	
 	cursor.execute(
 		'INSERT INTO emails (sender_id, subject, body, folder_id) VALUES (%s, %s, %s, %s) RETURNING id',
 		(request.current_user['id'], data.get('subject'), data.get('body'), folder_id)
 	)
 	email_id = cursor.fetchone()['id']
+	
+	# Add local recipients
+	for recipient_email, recipient_id in local_recipients:
+		cursor.execute(
+			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
+			(email_id, recipient_id, 'to')
+		)
+	
 	conn.commit()
 	cursor.close()
 	conn.close()
+	
+	# Queue external recipients if any
+	if external_recipients:
+		from email.message import EmailMessage as EM
+		from smtp_server.outbound.storage import queue_outbound_email
+		
+		msg = EM()
+		msg['Subject'] = data.get('subject', '')
+		msg['From'] = from_address
+		msg['To'] = ', '.join(external_recipients)
+		msg.set_content(data.get('body', ''))
+		
+		try:
+			_, queue_ids = queue_outbound_email(
+				sender_id=request.current_user['id'],
+				from_address=from_address,
+				to_addresses=external_recipients,
+				subject=data.get('subject', ''),
+				body=data.get('body', ''),
+				message=msg,
+				headers=dict(msg.items())
+			)
+		except Exception as e:
+			logger.error(f"Error queueing outbound email: {e}")
+	
 	return jsonify({'id': email_id}), 201
 
 @bp.route('/api/emails/<int:email_id>/read', methods=['POST'])

@@ -44,43 +44,44 @@ class TestSearch:
 		"""Test search with folder filter"""
 		from app.db import get_db_connection
 		
-		# Create folder
+		# Get current user
 		conn = get_db_connection()
 		cursor = conn.cursor()
 		cursor.execute('SELECT id FROM users WHERE email = %s', ('test@example.com',))
 		user_id = cursor.fetchone()['id']
+		
+		# Create work folder
 		cursor.execute(
 			'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
 			(user_id, 'Work')
 		)
-		folder_id = cursor.fetchone()['id']
+		work_folder_id = cursor.fetchone()['id']
+		
+		# Create personal folder
+		cursor.execute(
+			'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+			(user_id, 'Personal')
+		)
+		personal_folder_id = cursor.fetchone()['id']
+		
+		# Create email in work folder
+		cursor.execute('''
+			INSERT INTO emails (sender_id, subject, body, folder_id, created_at)
+			VALUES (%s, 'Work Project', 'About the project', %s, NOW())
+		''', (user_id, work_folder_id))
+		
+		# Create email in personal folder
+		cursor.execute('''
+			INSERT INTO emails (sender_id, subject, body, folder_id, created_at)
+			VALUES (%s, 'Personal Project', 'About personal stuff', %s, NOW())
+		''', (user_id, personal_folder_id))
+		
 		conn.commit()
 		cursor.close()
 		conn.close()
 		
-		# Create email in folder
-		client.post('/api/emails',
-			headers=auth_headers,
-			json={
-				'to': 'recipient@example.com',
-				'subject': 'Work Project',
-				'body': 'About the project',
-				'folder_id': folder_id
-			}
-		)
-		
-		# Create email without folder
-		client.post('/api/emails',
-			headers=auth_headers,
-			json={
-				'to': 'recipient@example.com',
-				'subject': 'Personal Project',
-				'body': 'About personal stuff'
-			}
-		)
-		
 		# Search in work folder only
-		response = client.get(f'/api/search?q=project&folder_id={folder_id}', headers=auth_headers)
+		response = client.get(f'/api/search?q=project&folder_id={work_folder_id}', headers=auth_headers)
 		assert response.status_code == 200
 		data = response.get_json()
 		assert len(data['emails']) == 1
@@ -88,27 +89,44 @@ class TestSearch:
 	
 	def test_search_with_read_flag(self, client, auth_headers, db):
 		"""Test search with read/unread flag filter"""
-		# Create and mark one as read
-		response = client.post('/api/emails',
-			headers=auth_headers,
-			json={
-				'to': 'recipient@example.com',
-				'subject': 'Read Email',
-				'body': 'This has been read'
-			}
-		)
-		email_id = response.get_json()['id']
-		client.post(f'/api/emails/{email_id}/read', headers=auth_headers)
+		# Get current user
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute("SELECT id FROM users WHERE email = 'test@example.com'")
+		user_id = cursor.fetchone()['id']
+		
+		# Get or create inbox folder
+		cursor.execute("SELECT id FROM folders WHERE user_id = %s AND name = 'Inbox'", (user_id,))
+		folder_row = cursor.fetchone()
+		if folder_row:
+			folder_id = folder_row['id']
+		else:
+			cursor.execute('''
+				INSERT INTO folders (user_id, name, created_at)
+				VALUES (%s, 'Inbox', NOW())
+				RETURNING id
+			''', (user_id,))
+			folder_id = cursor.fetchone()['id']
+		
+		# Create read email directly in database (to ensure proper is_read flag)
+		cursor.execute('''
+			INSERT INTO emails (sender_id, subject, body, folder_id, is_read, created_at)
+			VALUES (%s, 'Read Email', 'This has been read', %s, TRUE, NOW())
+			RETURNING id
+		''', (user_id, folder_id))
+		read_email_id = cursor.fetchone()['id']
 		
 		# Create unread email
-		client.post('/api/emails',
-			headers=auth_headers,
-			json={
-				'to': 'recipient@example.com',
-				'subject': 'Unread Email',
-				'body': 'This is unread'
-			}
-		)
+		cursor.execute('''
+			INSERT INTO emails (sender_id, subject, body, folder_id, is_read, created_at)
+			VALUES (%s, 'Unread Email', 'This is unread', %s, FALSE, NOW())
+			RETURNING id
+		''', (user_id, folder_id))
+		unread_email_id = cursor.fetchone()['id']
+		
+		conn.commit()
+		cursor.close()
+		conn.close()
 		
 		# Search for read emails
 		response = client.get('/api/search?q=email&flag=read', headers=auth_headers)
