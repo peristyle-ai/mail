@@ -402,3 +402,156 @@ def move_email(email_id):
 	cursor.close()
 	conn.close()
 	return jsonify({'status': 'moved'})
+
+@bp.route('/api/emails/<int:email_id>/delivery-status', methods=['GET'])
+@token_required
+def get_delivery_status(email_id):
+	"""
+	Get delivery status for an outbound email
+	---
+	tags:
+	  - Emails
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: path
+	    name: email_id
+	    type: integer
+	    required: true
+	    description: Email ID
+	responses:
+	  200:
+	    description: Delivery status retrieved
+	    schema:
+	      type: object
+	      properties:
+	        email_id:
+	          type: integer
+	        status:
+	          type: string
+	          description: Overall status (pending, sending, sent, failed, retry, not_found)
+	        queue_entries:
+	          type: array
+	          items:
+	            type: object
+	            properties:
+	              recipient:
+	                type: string
+	              status:
+	                type: string
+	              attempts:
+	                type: integer
+	              last_attempt:
+	                type: string
+	                format: date-time
+	              delivered_at:
+	                type: string
+	                format: date-time
+	              error:
+	                type: string
+	        logs:
+	          type: array
+	          items:
+	            type: object
+	            properties:
+	              event:
+	                type: string
+	              smtp_response:
+	                type: string
+	              error:
+	                type: string
+	              remote_server:
+	                type: string
+	              timestamp:
+	                type: string
+	                format: date-time
+	  404:
+	    description: Email not found or not an outbound email
+	  401:
+	    description: Unauthorized
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	# Verify email exists and belongs to user
+	cursor.execute(
+		'SELECT id FROM emails WHERE id = %s AND sender_id = %s',
+		(email_id, request.current_user['id'])
+	)
+	email = cursor.fetchone()
+	if not email:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Email not found'}), 404
+	
+	# Get queue entries for this email
+	cursor.execute(
+		'''SELECT id, recipient_email, status, attempt_count, 
+		   last_attempt, delivered_at, error_message
+		   FROM outbound_queue
+		   WHERE email_id = %s''',
+		(email_id,)
+	)
+	queue_entries = cursor.fetchall()
+	
+	if not queue_entries:
+		cursor.close()
+		conn.close()
+		return jsonify({
+			'email_id': email_id,
+			'status': 'not_found',
+			'message': 'No outbound delivery record found for this email'
+		}), 200
+	
+	# Determine overall status
+	statuses = [entry['status'] for entry in queue_entries]
+	if 'sent' in statuses and all(s == 'sent' for s in statuses):
+		overall_status = 'sent'
+	elif 'failed' in statuses:
+		overall_status = 'failed'
+	elif 'sending' in statuses:
+		overall_status = 'sending'
+	elif 'retry' in statuses:
+		overall_status = 'retry'
+	else:
+		overall_status = 'pending'
+	
+	# Get delivery logs
+	cursor.execute(
+		'''SELECT event_type, smtp_response, error_message, 
+		   remote_server, created_at
+		   FROM delivery_logs
+		   WHERE email_id = %s
+		   ORDER BY created_at DESC''',
+		(email_id,)
+	)
+	logs = cursor.fetchall()
+	
+	cursor.close()
+	conn.close()
+	
+	return jsonify({
+		'email_id': email_id,
+		'status': overall_status,
+		'queue_entries': [
+			{
+				'recipient': entry['recipient_email'],
+				'status': entry['status'],
+				'attempts': entry['attempt_count'],
+				'last_attempt': entry['last_attempt'].isoformat() if entry['last_attempt'] else None,
+				'delivered_at': entry['delivered_at'].isoformat() if entry['delivered_at'] else None,
+				'error': entry['error_message']
+			}
+			for entry in queue_entries
+		],
+		'logs': [
+			{
+				'event': log['event_type'],
+				'smtp_response': log['smtp_response'],
+				'error': log['error_message'],
+				'remote_server': log['remote_server'],
+				'timestamp': log['created_at'].isoformat()
+			}
+			for log in logs
+		]
+	}), 200

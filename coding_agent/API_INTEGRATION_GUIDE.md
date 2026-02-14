@@ -91,7 +91,83 @@ curl -X POST http://localhost:5003/api/emails \
 
 **Endpoint**: `GET /api/emails/{id}/delivery-status`
 
-**Note**: This endpoint may need to be implemented. Currently, check delivery via database or logs.
+**Description**: Check the delivery status of an outbound email
+
+**Request**:
+```bash
+curl http://localhost:5003/api/emails/123/delivery-status \
+  -H "Authorization: Bearer <token>"
+```
+
+**Successful Response** (for sent email):
+```json
+{
+  "email_id": 123,
+  "status": "sent",
+  "queue_entries": [
+    {
+      "recipient": "payroll@example.com",
+      "status": "sent",
+      "attempts": 1,
+      "last_attempt": "2026-02-14T20:20:03.422443+10:00",
+      "delivered_at": "2026-02-14T20:20:06.771581+10:00",
+      "error": null
+    }
+  ],
+  "logs": [
+    {
+      "event": "attempt",
+      "smtp_response": null,
+      "error": null,
+      "remote_server": "gmail-smtp-in.l.google.com:25",
+      "timestamp": "2026-02-14T20:20:03.422443+10:00"
+    },
+    {
+      "event": "success",
+      "smtp_response": null,
+      "error": null,
+      "remote_server": "gmail-smtp-in.l.google.com",
+      "timestamp": "2026-02-14T20:20:06.781307+10:00"
+    }
+  ]
+}
+```
+
+**Status Values**:
+- `sent` - Email successfully delivered
+- `pending` - Email queued, waiting to be sent
+- `sending` - Currently attempting delivery
+- `retry` - Delivery failed, will retry later
+- `failed` - Delivery failed permanently
+- `not_found` - No outbound delivery record (email may have been received, not sent)
+
+**Python Example**:
+```python
+def check_delivery_status(email_id):
+    token = get_auth_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    response = requests.get(
+        f"{BASE_URL}/api/emails/{email_id}/delivery-status",
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        print(f"Status: {data['status']}")
+        
+        for entry in data['queue_entries']:
+            print(f"To: {entry['recipient']}")
+            print(f"Status: {entry['status']}")
+            print(f"Delivered: {entry['delivered_at']}")
+            if entry['error']:
+                print(f"Error: {entry['error']}")
+        
+        return data
+    else:
+        print(f"Error: {response.status_code}")
+        return None
+```
 
 ### Other Useful Endpoints
 
@@ -158,14 +234,68 @@ def send_email(subject, body, to_address=RECIPIENT):
     else:
         raise Exception(f"Failed to send email: {response.status_code} - {response.text}")
 
+def check_delivery_status(email_id):
+    """Check delivery status of an email"""
+    token = get_auth_token()
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    response = requests.get(
+        f"{BASE_URL}/api/emails/{email_id}/delivery-status",
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        data = response.json()
+        status = data['status']
+        
+        print(f"\nDelivery Status: {status}")
+        
+        if status == 'sent':
+            for entry in data['queue_entries']:
+                print(f"✓ Delivered to: {entry['recipient']}")
+                print(f"  Time: {entry['delivered_at']}")
+        elif status == 'pending':
+            print("⏳ Email queued, waiting to be sent...")
+        elif status == 'retry':
+            print("🔄 Delivery failed, will retry...")
+            for entry in data['queue_entries']:
+                if entry['error']:
+                    print(f"  Error: {entry['error']}")
+        elif status == 'failed':
+            print("❌ Delivery failed permanently")
+            for entry in data['queue_entries']:
+                if entry['error']:
+                    print(f"  Error: {entry['error']}")
+        elif status == 'not_found':
+            print("ℹ️  No delivery record (email may have been received, not sent)")
+        
+        return data
+    else:
+        print(f"Error checking status: {response.status_code}")
+        return None
+
 # Example usage
 if __name__ == "__main__":
     try:
+        # Send email
         email_id = send_email(
             subject="Test from coding agent",
             body="This is a test email sent via the API"
         )
-        print(f"Email queued for delivery to {RECIPIENT}")
+        print(f"Email {email_id} queued for delivery to {RECIPIENT}")
+        
+        # Wait and check delivery status
+        print("\nWaiting 60 seconds for delivery...")
+        import time
+        time.sleep(60)
+        
+        # Check delivery status
+        check_delivery_status(email_id)
+        
     except Exception as e:
         print(f"Error: {e}")
 ```
@@ -383,5 +513,6 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-02-14 (20:50 AEST)
 **Status**: All 112 tests passing, email delivery to Gmail working
+**New**: Delivery status endpoint (`GET /api/emails/{id}/delivery-status`) now implemented
