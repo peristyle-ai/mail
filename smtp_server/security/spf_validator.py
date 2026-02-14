@@ -5,6 +5,7 @@ Validates that the sending IP is authorized to send email for the sender's domai
 """
 
 import logging
+import ipaddress
 import dns.resolver
 from typing import Tuple, Optional
 
@@ -17,11 +18,45 @@ class SPFValidator:
     
     Checks if the sending IP is authorized to send email for the sender's domain
     by querying DNS SPF records.
+    
+    Note: SPF validation is bypassed for localhost and internal/private IP addresses
+    since SPF is meant to protect against external spoofing, not internal testing.
     """
     
     def __init__(self, reject_on_fail: bool = True):
         self.reject_on_fail = reject_on_fail
         logger.info(f"SPF validator initialized (reject_on_fail={reject_on_fail})")
+    
+    def _is_internal_ip(self, ip: str) -> bool:
+        """
+        Check if IP is localhost or internal/private (not subject to SPF validation).
+        
+        Args:
+            ip: IP address to check
+            
+        Returns:
+            True if IP is localhost or internal
+        """
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            
+            # Check for localhost
+            if ip_obj.is_loopback:
+                return True
+            
+            # Check for private networks
+            if ip_obj.is_private:
+                return True
+            
+            # Check for link-local
+            if ip_obj.is_link_local:
+                return True
+                
+            return False
+        except ValueError:
+            # Invalid IP, treat as internal to be safe
+            logger.warning(f"Invalid IP address: {ip}, treating as internal")
+            return True
     
     def validate(self, sender_ip: str, sender_email: str) -> Tuple[str, Optional[str]]:
         """
@@ -42,6 +77,11 @@ class SPFValidator:
             - 'permerror': Permanent error (bad SPF record)
         """
         try:
+            # Skip SPF validation for localhost and internal IPs
+            if self._is_internal_ip(sender_ip):
+                logger.debug(f"SPF bypassed for internal IP: {sender_ip}")
+                return 'pass', 'SPF bypassed for internal/localhost connection'
+            
             # Extract domain from email
             domain = sender_email.split('@')[-1] if '@' in sender_email else sender_email
             

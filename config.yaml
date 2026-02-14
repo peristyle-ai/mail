@@ -1,0 +1,66 @@
+# Mail Server Configuration
+# This file configures the SMTP server settings
+
+smtp:
+  # Server bind settings
+  host: "0.0.0.0"
+  port: 2525
+  
+  # EHLO/HELO hostname - IMPORTANT for reverse DNS
+  # This should match your reverse DNS (PTR) record
+  # If your reverse DNS is: example.com.au
+  # Then use: hostname: "example.com.au"
+  # If your reverse DNS is: mail.example.com.au  
+  # Then use: hostname: "mail.example.com.au"
+  hostname: "example.com.au"
+  
+  # Enable debug logging
+  debug: false
+  
+  # UTF-8 support
+  enable_smtputf8: true
+
+# Outbound mail settings (for sending emails via your mail server)
+outbound:
+  # When sending test emails or system notifications, use this server
+  server_host: "127.0.0.1"
+  server_port: 2525
+  
+  # Default from address for system emails
+  default_from: "noreply@example.com.au"
+  
+  # Reply-to address
+  reply_to: "admin@example.com.au"
+
+# Security settings (can be overridden by environment variables)
+security:
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    max_connections: 10
+    max_emails_per_minute: 30
+    max_emails_per_hour: 100
+  
+  # SPF validation
+  spf:
+    enabled: true
+    reject_on_fail: true
+  
+  # Greylisting
+  greylist:
+    enabled: true
+    delay_minutes: 5
+    whitelist_days: 30
+  
+  # TLS/SSL
+  tls:
+    enabled: true
+    force: false
+    cert_path: "certs/server.crt"
+    key_path: "certs/server.key"
+
+# API settings
+api:
+  host: "0.0.0.0"
+  port: 5001
+  debug: false
