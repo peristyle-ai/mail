@@ -14,6 +14,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db_connection
 from smtp_server import start_smtp_server, stop_smtp_server
+from config import get_config
+
+# Get config for test email addresses
+config = get_config()
+TEST_RECIPIENT = config.local_test_email
+TEST_DOMAIN = config.domain
 
 
 @pytest.fixture
@@ -92,7 +98,7 @@ class TestSMTPReception:
         msg = MIMEText('Test email body content')
         msg['Subject'] = 'SMTP Test - Plain Email'
         msg['From'] = 'test@example.com'
-        msg['To'] = 'the operator@example.com.au'
+        msg['To'] = '${TEST_RECIPIENT}'
         
         with smtplib.SMTP('127.0.0.1', 2525) as server:
             server.send_message(msg)
@@ -128,7 +134,7 @@ class TestSMTPReception:
         msg = MIMEMultipart()
         msg['Subject'] = 'SMTP Test - With Attachment'
         msg['From'] = 'test@example.com'
-        msg['To'] = 'the operator@example.com.au'
+        msg['To'] = '${TEST_RECIPIENT}'
         
         # Add body
         body = MIMEText('This email has an attachment', 'plain')
@@ -177,7 +183,7 @@ class TestSMTPReception:
         msg = MIMEText('Multi-recipient test')
         msg['Subject'] = 'SMTP Test - Multiple Recipients'
         msg['From'] = 'sender@example.com'
-        msg['To'] = 'the operator@example.com.au'
+        msg['To'] = '${TEST_RECIPIENT}'
         
         with smtplib.SMTP('127.0.0.1', 2525) as server:
             server.send_message(msg)
@@ -199,7 +205,7 @@ class TestSMTPReception:
         msg = MIMEText('Unicode content: ñ 中文 🎉', 'plain', 'utf-8')
         msg['Subject'] = 'Unicode: ñ 中文 🎉'
         msg['From'] = 'test@example.com'
-        msg['To'] = 'the operator@example.com.au'
+        msg['To'] = '${TEST_RECIPIENT}'
         
         with smtplib.SMTP('127.0.0.1', 2525) as server:
             server.send_message(msg)

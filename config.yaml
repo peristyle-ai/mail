@@ -1,5 +1,6 @@
 # Mail Server Configuration
 # This file configures the SMTP server settings
+# NOTE: Override these values in your .env file for your specific domain
 
 smtp:
   # Server bind settings
@@ -8,11 +9,8 @@ smtp:
   
   # EHLO/HELO hostname - IMPORTANT for reverse DNS
   # This should match your reverse DNS (PTR) record
-  # If your reverse DNS is: example.com.au
-  # Then use: hostname: "example.com.au"
-  # If your reverse DNS is: mail.example.com.au  
-  # Then use: hostname: "mail.example.com.au"
-  hostname: "example.com.au"
+  # Override via environment variable: DOMAIN
+  hostname: "localhost"
   
   # Enable debug logging
   debug: false
@@ -27,10 +25,11 @@ outbound:
   server_port: 2525
   
   # Default from address for system emails
-  default_from: "noreply@example.com.au"
+  # The domain will be automatically set from your DOMAIN env variable
+  default_from: "noreply@localhost"
   
   # Reply-to address
-  reply_to: "admin@example.com.au"
+  reply_to: "admin@localhost"
 
 # Security settings (can be overridden by environment variables)
 security:

@@ -103,7 +103,7 @@ def main():
 	print()
 	print("2. Your domain DNS should have:")
 	print(f"   A Record: {config.smtp_hostname} → <your-static-ip>")
-	print(f"   MX Record: example.com.au → {config.smtp_hostname}")
+	print(f"   MX Record: {config.domain} → {config.smtp_hostname}")
 	print()
 	print("3. Run the reverse DNS test:")
 	print("   python scripts/test_reverse_dns.py")

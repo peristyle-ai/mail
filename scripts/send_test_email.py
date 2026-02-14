@@ -3,9 +3,10 @@
 Test script to send emails to the SMTP server.
 
 Usage:
-    python send_test_email.py --to the operator@example.com.au --server 192.168.4.30
+    python send_test_email.py --to test@yourdomain.com --server 127.0.0.1
 
 This script sends a test email via SMTP to your local mail server.
+Configure recipient in .env: LOCAL_TEST_EMAIL=test@yourdomain.com
 """
 
 import smtplib
@@ -16,6 +17,13 @@ from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime
 import io
+from pathlib import Path
+import sys
+
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import get_config
 
 
 def create_test_attachment(filename="test_attachment.txt"):
@@ -29,8 +37,8 @@ This file was attached to test the mail server's attachment handling.
     return filename, content.encode('utf-8'), 'text/plain'
 
 
-def send_test_email(to_address, server_host='192.168.4.30', server_port=2525, 
-                    from_address='test@example.com', subject=None, body=None, 
+def send_test_email(to_address=None, server_host=None, server_port=2525, 
+                    from_address=None, subject=None, body=None, 
                     attachment_filename=None, attachment_content=None, attachment_type=None):
     """
     Send a test email via SMTP.
@@ -43,6 +51,17 @@ def send_test_email(to_address, server_host='192.168.4.30', server_port=2525,
         subject: Email subject
         body: Email body
     """
+    
+    # Load configuration for defaults
+    config = get_config()
+    
+    # Set defaults from config if not provided
+    if to_address is None:
+        to_address = config.local_test_email
+    if server_host is None:
+        server_host = config.outbound_server_host
+    if from_address is None:
+        from_address = f"test@{config.domain}" if config.domain != 'localhost' else 'test@example.com'
     
     # Default subject and body if not provided
     if subject is None:
@@ -117,13 +136,16 @@ Test Script
 
 
 if __name__ == '__main__':
+    # Load config for defaults
+    config = get_config()
+    
     parser = argparse.ArgumentParser(
         description='Send test email to local SMTP server',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Examples:
-  # Send to default user on local network
-  python send_test_email.py --to the operator@example.com.au --server 192.168.4.30
+  # Send to default user (from .env config)
+  python send_test_email.py
   
   # Send with custom subject and body
   python send_test_email.py --to user@example.com --subject "Hello" --body "Test message"
@@ -133,19 +155,23 @@ Examples:
   
   # Send with attachment
   python send_test_email.py --to user@example.com --attach
+
+Current Configuration:
+  Default Recipient: {config.local_test_email}
+  Default Server: {config.outbound_server_host}:{config.outbound_server_port}
         """
     )
     
     parser.add_argument(
         '--to', 
-        default='the operator@example.com.au',
-        help='Recipient email address (default: the operator@example.com.au)'
+        default=None,
+        help=f'Recipient email address (default: {config.local_test_email})'
     )
     
     parser.add_argument(
         '--server', 
-        default='192.168.4.30',
-        help='SMTP server IP/hostname (default: 192.168.4.30)'
+        default=None,
+        help=f'SMTP server IP/hostname (default: {config.outbound_server_host})'
     )
     
     parser.add_argument(
@@ -158,8 +184,8 @@ Examples:
     parser.add_argument(
         '--from', 
         dest='from_addr',
-        default='test@example.com',
-        help='Sender email address (default: test@example.com)'
+        default=None,
+        help=f'Sender email address (default: test@{config.domain})'
     )
     
     parser.add_argument(
