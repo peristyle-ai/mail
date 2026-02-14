@@ -1,0 +1,353 @@
+"""
+Outbound Queue Processor
+
+Background processor that delivers queued emails to external servers.
+"""
+
+import threading
+import time
+import logging
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
+from typing import Optional, List
+
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.db import get_db_connection
+from .mx_lookup import MXLookup
+from .delivery import OutboundSMTPSender
+from .storage import log_delivery_attempt
+from .rate_limiter import OutboundRateLimiter
+from .dkim_signer import load_dkim_config
+
+logger = logging.getLogger(__name__)
+
+
+class OutboundQueueProcessor:
+	"""Background processor for outbound email queue."""
+	
+	def __init__(
+		self,
+		check_interval: int = 30,
+		max_retries: int = 5,
+		retry_delays: Optional[List[int]] = None
+	):
+		self.check_interval = check_interval
+		self.max_retries = max_retries
+		self.retry_delays = retry_delays or [300, 900, 1800, 3600, 7200]
+		# 5min, 15min, 30min, 1hr, 2hr
+		
+		self.running = False
+		self.thread: Optional[threading.Thread] = None
+		self.mx_lookup = MXLookup()
+		self.sender = OutboundSMTPSender()
+		self.rate_limiter = OutboundRateLimiter()
+		self.dkim_signer = load_dkim_config()
+		
+		if self.dkim_signer:
+			logger.info("DKIM signing enabled")
+		else:
+			logger.warning("DKIM signing not configured")
+		
+		logger.info(
+			f"Outbound queue processor initialized: "
+			f"interval={check_interval}s, max_retries={max_retries}"
+		)
+	
+	def start(self):
+		"""Start the background processing thread."""
+		if self.running:
+			logger.warning("Queue processor already running")
+			return
+		
+		self.running = True
+		self.thread = threading.Thread(target=self._process_loop, daemon=True)
+		self.thread.start()
+		logger.info("Outbound queue processor started")
+	
+	def stop(self):
+		"""Stop the background processing thread."""
+		self.running = False
+		if self.thread and self.thread.is_alive():
+			self.thread.join(timeout=5)
+			logger.info("Outbound queue processor stopped")
+	
+	def _process_loop(self):
+		"""Main processing loop."""
+		while self.running:
+			try:
+				self._process_pending_emails()
+			except Exception as e:
+				logger.error(f"Error in processing loop: {e}")
+			
+			time.sleep(self.check_interval)
+	
+	def _process_pending_emails(self):
+		"""Process all pending emails in the queue."""
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		
+		try:
+			# Get pending emails that are ready to send
+			cursor.execute(
+				'''SELECT id, email_id, recipient_email, recipient_domain, 
+				   attempt_count
+				   FROM outbound_queue
+				   WHERE status IN ('pending', 'retry')
+				   AND (next_attempt IS NULL OR next_attempt <= %s)
+				   LIMIT 10''',
+				(datetime.now(timezone.utc),)
+			)
+			pending = cursor.fetchall()
+			
+			if pending:
+				logger.info(f"Processing {len(pending)} pending outbound emails")
+			
+			for row in pending:
+				try:
+					self._process_email(
+						row['id'],
+						row['email_id'],
+						row['recipient_email'],
+						row['recipient_domain'],
+						row['attempt_count']
+					)
+				except Exception as e:
+					logger.error(f"Error processing queue item {row['id']}: {e}")
+			
+		finally:
+			cursor.close()
+			conn.close()
+	
+	def _process_email(
+		self,
+		queue_id: int,
+		email_id: int,
+		recipient: str,
+		domain: str,
+		attempt_count: int
+	):
+		"""Process a single outbound email."""
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		
+		try:
+			# Check rate limits
+			allowed, message = self.rate_limiter.check_rate_limit(domain)
+			if not allowed:
+				logger.warning(f"Rate limit hit for {domain}: {message}")
+				cursor.execute(
+					'''UPDATE outbound_queue 
+					   SET status = 'retry', 
+					       next_attempt = %s,
+					       error_message = %s
+					   WHERE id = %s''',
+					(datetime.now(timezone.utc) + timedelta(minutes=5),
+					 message, queue_id)
+				)
+				conn.commit()
+				return
+			
+			# Update status to sending
+			now = datetime.now(timezone.utc)
+			cursor.execute(
+				'''UPDATE outbound_queue 
+				   SET status = 'sending', 
+				       attempt_count = attempt_count + 1,
+				       last_attempt = %s
+				   WHERE id = %s''',
+				(now, queue_id)
+			)
+			conn.commit()
+			
+			# Get email content
+			cursor.execute(
+				'''SELECT sender_id, subject, body, headers 
+				   FROM emails WHERE id = %s''',
+				(email_id,)
+			)
+			email_row = cursor.fetchone()
+			
+			if not email_row:
+				logger.error(f"Email {email_id} not found")
+				cursor.execute(
+					'''UPDATE outbound_queue 
+					   SET status = 'failed', error_message = %s
+					   WHERE id = %s''',
+					('Original email not found', queue_id)
+				)
+				conn.commit()
+				return
+			
+			# Get sender's email address
+			cursor.execute(
+				'SELECT email FROM users WHERE id = %s',
+				(email_row['sender_id'],)
+			)
+			sender_row = cursor.fetchone()
+			if not sender_row:
+				logger.error(f"Sender {email_row['sender_id']} not found")
+				cursor.execute(
+					'''UPDATE outbound_queue 
+					   SET status = 'failed', error_message = %s
+					   WHERE id = %s''',
+					('Sender not found', queue_id)
+				)
+				conn.commit()
+				return
+			
+			from_address = sender_row['email']
+			
+			# Lookup MX records
+			mail_server = self.mx_lookup.get_mail_server(recipient)
+			if not mail_server:
+				error_msg = f"No mail server found for {domain}"
+				logger.error(error_msg)
+				cursor.execute(
+					'''UPDATE outbound_queue 
+					   SET status = 'failed', error_message = %s
+					   WHERE id = %s''',
+					(error_msg, queue_id)
+				)
+				conn.commit()
+				log_delivery_attempt(
+					queue_id, email_id, recipient, 'failure',
+					None, error_msg, None
+				)
+				return
+			
+			server_host, server_port = mail_server
+			
+			# Build email message
+			import uuid
+			msg = EmailMessage()
+			msg['From'] = from_address
+			msg['To'] = recipient
+			msg['Subject'] = email_row['subject']
+			
+			# Generate Message-ID (required by Gmail)
+			domain = from_address.split('@')[-1]
+			msg_id = f"<{uuid.uuid4().hex}@{domain}>"
+			msg['Message-ID'] = msg_id
+			
+			msg.set_content(email_row['body'])
+			
+			# Add original headers (skip content-related and address headers)
+			if email_row['headers']:
+				skip_headers = {'from', 'to', 'subject', 'message-id', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
+				for line in email_row['headers'].split('\n'):
+					if ':' in line:
+						key, value = line.split(':', 1)
+						header_lower = key.strip().lower()
+						if header_lower not in skip_headers and not header_lower.startswith('content-'):
+							msg[key.strip()] = value.strip()
+			
+			# Sign with DKIM if configured
+			if self.dkim_signer:
+				msg = self.dkim_signer.sign_email(msg)
+				logger.debug(f"DKIM signed email for {recipient}")
+			
+			# Record rate limit
+			self.rate_limiter.record_send(domain)
+			
+			# Attempt delivery
+			log_delivery_attempt(
+				queue_id, email_id, recipient, 'attempt',
+				None, None, f"{server_host}:{server_port}"
+			)
+			
+			success, message = self.sender.deliver_email(
+				from_address, recipient, msg, server_host, server_port
+			)
+			
+			if success:
+				# Mark as sent
+				cursor.execute(
+					'''UPDATE outbound_queue 
+					   SET status = 'sent', 
+					       delivered_at = %s,
+					       error_message = NULL
+					   WHERE id = %s''',
+					(datetime.now(timezone.utc), queue_id)
+				)
+				conn.commit()
+				log_delivery_attempt(
+					queue_id, email_id, recipient, 'success',
+					message, None, server_host
+				)
+				logger.info(f"Successfully delivered email {email_id} to {recipient}")
+			else:
+				# Check if temporary or permanent failure
+				is_permanent = 'Permanent' in message or 'refused' in message.lower()
+				
+				if is_permanent or attempt_count >= self.max_retries:
+					# Mark as failed
+					cursor.execute(
+						'''UPDATE outbound_queue 
+						   SET status = 'failed', error_message = %s
+						   WHERE id = %s''',
+						(message[:500], queue_id)
+					)
+					conn.commit()
+					log_delivery_attempt(
+						queue_id, email_id, recipient, 'failure',
+						None, message, server_host
+					)
+					logger.error(f"Failed to deliver email {email_id} to {recipient}: {message}")
+				else:
+					# Schedule retry
+					delay = self.retry_delays[min(attempt_count, len(self.retry_delays)-1)]
+					next_attempt = datetime.now(timezone.utc) + timedelta(seconds=delay)
+					
+					cursor.execute(
+						'''UPDATE outbound_queue 
+						   SET status = 'retry', 
+						       next_attempt = %s,
+						       error_message = %s
+						   WHERE id = %s''',
+						(next_attempt, message[:500], queue_id)
+					)
+					conn.commit()
+					log_delivery_attempt(
+						queue_id, email_id, recipient, 'bounce',
+						None, message, server_host
+					)
+					logger.warning(
+						f"Delivery failed for {recipient}, retry {attempt_count+1}/{self.max_retries} "
+						f"scheduled at {next_attempt}"
+					)
+					
+		finally:
+			cursor.close()
+			conn.close()
+	
+	def get_queue_stats(self) -> dict:
+		"""Get statistics about the outbound queue."""
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		
+		try:
+			cursor.execute(
+				'''SELECT status, COUNT(*) as count 
+				   FROM outbound_queue 
+				   GROUP BY status'''
+			)
+			status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
+			
+			cursor.execute(
+				'''SELECT COUNT(*) as count 
+				   FROM outbound_queue 
+				   WHERE status IN ('pending', 'retry')'''
+			)
+			pending = cursor.fetchone()['count']
+			
+			return {
+				'pending': pending,
+				'by_status': status_counts,
+				'rate_limits': self.rate_limiter.get_stats()
+			}
+		finally:
+			cursor.close()
+			conn.close()

@@ -141,6 +141,30 @@ class GreylistManager:
             
             result = cursor.fetchone()
             
+            # For major providers, check if any sender from this domain is already whitelisted
+            if is_major and not result:
+                sender_domain = sender.split('@')[-1].lower()
+                cursor.execute('''
+                    SELECT id FROM greylist 
+                    WHERE sender LIKE %s 
+                    AND recipient = %s 
+                    AND whitelisted = TRUE
+                    LIMIT 1
+                ''', (f'%@{sender_domain}', recipient))
+                any_whitelisted = cursor.fetchone()
+                if any_whitelisted:
+                    # Auto-whitelist this new sender from same domain
+                    cursor.execute('''
+                        INSERT INTO greylist (client_ip, sender, recipient, first_seen, whitelisted)
+                        VALUES (%s, %s, %s, %s, TRUE)
+                        ON CONFLICT (client_ip, sender, recipient) DO UPDATE SET whitelisted = TRUE
+                    ''', (client_ip, sender, recipient, datetime.now(timezone.utc)))
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+                    logger.info(f"Greylist: Auto-whitelisted {sender} (any {sender_domain} sender already whitelisted)")
+                    return True, None
+            
             if result:
                 entry_id = result['id']
                 whitelisted = result['whitelisted']

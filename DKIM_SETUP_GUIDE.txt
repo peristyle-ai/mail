@@ -1,0 +1,182 @@
+================================================================================
+DKIM & SPF SETUP GUIDE - Email Authentication for Gmail/Outlook Delivery
+================================================================================
+
+Your mail server now has DKIM signing enabled! To complete the setup and
+ensure emails reach Gmail/Outlook inboxes (not spam folders), you MUST add
+the following DNS records.
+
+================================================================================
+STEP 1: DKIM DNS Record (CRITICAL for Gmail)
+================================================================================
+
+Add this TXT record to your DNS settings:
+
+Host/Name: default._domainkey.example.com.au
+Type: TXT
+TTL: 3600 (or default)
+Value:
+v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA+Wqodw2DH/tlN58GGXfv/pDabnv754lEgB0M6XbSWrB9uQcFqcTlD/cBLHXtH4RnWLBGcoa+QsDeiAdb2Jn/y0B/OUVx2jpS9a3xKXEjTFQCAU6IWTLncrjJ6GK7QcEZCrtubQuLGdHH3nVluFr/iALuu2l5fO4dqC6JC7gU+FMjxckZUC5oY5+9sXSocHsNdiyzLpf/0lK6uFCYH9HhLpiT4s7Bc2G1D350JA1vtClQH9NcG8+ZF/J6ML80xV6iDzpzQJjqg1K68anb3AWSOFRn3aF54UW9mOOstedDeXmN1zEP45Y3h+JA4xjZ203ydVi0w4Ebce7bo5gWIpmWjQIDAQAB
+
+================================================================================
+STEP 2: SPF Record (CRITICAL - prevents spoofing)
+================================================================================
+
+Add this TXT record to your DNS settings:
+
+Host/Name: example.com.au (or @ for root)
+Type: TXT
+TTL: 3600 (or default)
+Value:
+v=spf1 ip4:144.6.112.4 -all
+
+Explanation:
+- ip4:144.6.112.4 = Your server's IP address
+- -all = Fail all other IPs (strict policy)
+
+Alternative (if you send from multiple IPs):
+v=spf1 ip4:144.6.112.4 include:_spf.google.com ~all
+
+================================================================================
+STEP 3: Reverse DNS (PTR) Record (CRITICAL)
+================================================================================
+
+Contact your ISP or hosting provider to set up a PTR record:
+
+IP: 144.6.112.4
+Should point to: example.com.au
+
+This is usually configured by your ISP, not in your DNS panel.
+
+================================================================================
+STEP 4: DMARC Record (Recommended)
+================================================================================
+
+Add this TXT record to your DNS settings:
+
+Host/Name: _dmarc.example.com.au
+Type: TXT
+TTL: 3600 (or default)
+Value:
+v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com.au; pct=100
+
+Explanation:
+- p=quarantine = Failed emails go to spam (not rejected)
+- rua = Where to send reports
+- pct=100 = Apply to 100% of emails
+
+================================================================================
+STEP 5: Verification Commands
+================================================================================
+
+After adding DNS records (wait 5-30 minutes for propagation), test with:
+
+# Test DKIM
+dig TXT default._domainkey.example.com.au
+
+# Test SPF
+dig TXT example.com.au
+
+# Test DMARC
+dig TXT _dmarc.example.com.au
+
+# Test Reverse DNS
+dig -x 144.6.112.4
+
+# Online validation tools:
+# https://mxtoolbox.com/dkim.aspx
+# https://dmarcian.com/dkim-inspector/
+# https://www.mail-tester.com
+
+================================================================================
+STEP 6: Send Test Email
+================================================================================
+
+Once DNS is configured, send a test email to Gmail:
+
+1. Via API:
+   curl -X POST http://localhost:5003/api/emails \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "to": "user@example.com",
+       "subject": "DKIM Test Email",
+       "body": "Testing email authentication"
+     }'
+
+2. Or via SMTP script:
+   python scripts/send_test_email.py \
+     --to user@example.com \
+     --subject "DKIM Test" \
+     --body "Testing email delivery"
+
+3. Check Gmail headers:
+   - Open the email in Gmail
+     - Click "More" (three dots) → "Show original"
+   - Look for: DKIM-Signature, SPF, DMARC
+   - All should show "PASS"
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: Emails still in spam
+Solution: 
+- Wait 24 hours for DNS propagation
+- Check https://www.mail-tester.com
+- Verify reverse DNS is set up
+
+Problem: DKIM verification fails
+Solution:
+- Check the DNS record value matches exactly
+- Ensure no extra spaces or line breaks
+- Use online DKIM validator
+
+Problem: SPF verification fails
+Solution:
+- Verify your public IP is correct (144.6.112.4)
+- Check with: curl ifconfig.me
+
+Problem: Gmail rejects emails
+Solution:
+- Ensure DKIM, SPF, and reverse DNS are all correct
+- Check Gmail Postmaster Tools: https://postmaster.google.com
+- Look for IP reputation issues
+
+================================================================================
+CURRENT STATUS
+================================================================================
+
+✅ DKIM Keys Generated: certs/dkim_default.pem
+✅ DKIM Signing: Enabled in mail server
+✅ Server: Running on port 5003 (API) and 2525 (SMTP)
+✅ Tests: 104/104 passing
+
+⏳ Waiting for: DNS records to be added
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. DNS propagation can take 5 minutes to 24 hours
+2. Gmail is very strict - all three (DKIM, SPF, reverse DNS) are needed
+3. Your IP reputation matters - new IPs may be initially flagged
+4. Send volume gradually to build reputation
+5. Monitor https://postmaster.google.com for reputation data
+
+================================================================================
+SUPPORT
+================================================================================
+
+To check current DNS status anytime:
+  dig TXT default._domainkey.example.com.au
+  dig TXT example.com.au
+  dig -x 144.6.112.4
+
+To view mail server logs:
+  journalctl --user -u mail-server -f
+
+To check outbound queue status:
+  python scripts/check_queue.py  (if created)
+
+================================================================================

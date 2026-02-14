@@ -1,16 +1,16 @@
 import os
 import jwt
-import hashlib
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
 from .db import get_db_connection
 
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    return generate_password_hash(password, method='pbkdf2:sha256')
 
 def verify_password(password, password_hash):
-    return hash_password(password) == password_hash
+    return check_password_hash(password_hash, password)
 
 def generate_jwt(user_id):
     secret_key = os.getenv('JWT_SECRET', 'dev-secret-key')

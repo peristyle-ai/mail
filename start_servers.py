@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
 from smtp_server import start_smtp_server, stop_smtp_server
+from smtp_server.outbound import OutboundQueueProcessor
 
 
 def run_flask_app(port=5000, debug=False):
@@ -30,7 +31,7 @@ def run_flask_app(port=5000, debug=False):
 
 def main():
     parser = argparse.ArgumentParser(description='Start Mail Server (Flask API + SMTP)')
-    parser.add_argument('--flask-port', type=int, default=5000, help='Flask API port (default: 5000)')
+    parser.add_argument('--flask-port', type=int, default=5003, help='Flask API port (default: 5003)')
     parser.add_argument('--smtp-port', type=int, default=2525, help='SMTP server port (default: 2525, use 587 with sudo)')
     parser.add_argument('--smtp-host', default='0.0.0.0', help='SMTP bind address (default: 0.0.0.0)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
@@ -43,6 +44,7 @@ def main():
     print()
     
     smtp_controller = None
+    queue_processor = None
     
     try:
         # Start SMTP server
@@ -53,6 +55,16 @@ def main():
             debug=args.debug
         )
         print(f"✓ SMTP Server started on {args.smtp_host}:{args.smtp_port}")
+        print()
+        
+        # Start outbound queue processor
+        print("Starting Outbound Queue Processor...")
+        queue_processor = OutboundQueueProcessor(
+            check_interval=30,
+            max_retries=5
+        )
+        queue_processor.start()
+        print("✓ Outbound Queue Processor started")
         print()
         
         # Start Flask in a separate thread
@@ -80,7 +92,11 @@ def main():
         print(f"  Local:  python scripts/send_test_email.py --server 127.0.0.1 --port {args.smtp_port}")
         print(f"  Network: python scripts/send_test_email.py --server 192.168.4.30 --port {args.smtp_port}")
         print()
-        print("Press Ctrl+C to stop both servers")
+        print("Outbound Email:")
+        print(f"  Queue Processor: Running (checks every 30s)")
+        print(f"  Retry Policy: 5 attempts with exponential backoff")
+        print()
+        print("Press Ctrl+C to stop all services")
         print("="*70)
         print()
         
@@ -92,6 +108,10 @@ def main():
         print("\n\nShutting down servers...")
         
     finally:
+        if queue_processor:
+            print("Stopping outbound queue processor...")
+            queue_processor.stop()
+            
         if smtp_controller:
             print("Stopping SMTP server...")
             stop_smtp_server(smtp_controller)

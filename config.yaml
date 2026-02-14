@@ -58,8 +58,26 @@ security:
     cert_path: "certs/server.crt"
     key_path: "certs/server.key"
 
+# DKIM signing for outbound emails
+# Improves deliverability to Gmail, Outlook, etc.
+dkim:
+  enabled: true
+  domain: "example.com.au"  # Your domain
+  selector: "default"            # DKIM selector
+  private_key: "certs/dkim_default.pem"
+  
+  # DNS Record to add:
+  # Host: default._domainkey.example.com.au
+  # Type: TXT
+  # Value: (generated when you run key generation)
+
+# SPF Record - add this to your DNS:
+# Type: TXT
+# Host: example.com.au
+# Value: v=spf1 ip4:144.6.112.4 -all
+
 # API settings
 api:
   host: "0.0.0.0"
-  port: 5001
+  port: 5003
   debug: false
