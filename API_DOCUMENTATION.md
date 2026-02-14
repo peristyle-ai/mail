@@ -4,7 +4,7 @@
 REST API for email management with JWT authentication
 
 ## Base URL
-`http://localhost:5000`
+`http://localhost:5001`
 
 ## Authentication
 All protected endpoints require JWT token in header:

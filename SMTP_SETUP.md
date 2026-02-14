@@ -12,7 +12,7 @@ python start_servers.py
 
 This will start:
 - **SMTP Server** on port 2525 (receives emails)
-- **Flask API** on port 5000 (REST API + Swagger UI)
+- **Flask API** on port 5001 (REST API + Swagger UI)
 
 **Note:** If testing from another computer on your network, ensure the firewall allows port 2525:
 ```bash
@@ -39,7 +39,7 @@ python scripts/send_test_email.py --server 192.168.4.30 --to the operator@exampl
 
 Then check in pgAdmin or API:
 ```
-http://192.168.4.30:5000/docs
+http://192.168.4.30:5001/docs
 ```
 
 ### 4. Check Received Emails
@@ -112,7 +112,7 @@ Internet / Gmail
       | REST API
       v
 +-------------------+
-|   Flask API       |  Port 5000
+|   Flask API       |  Port 5001
 |   /api/emails     |
 |   /docs (Swagger) |
 +-------------------+
@@ -206,8 +206,8 @@ For production use, consider:
 ## API Endpoints
 
 After starting servers, visit:
-- **Swagger UI:** http://localhost:5000/docs
-- **API Spec:** http://localhost:5000/api/spec.json
+- **Swagger UI:** http://localhost:5001/docs
+- **API Spec:** http://localhost:5001/api/spec.json
 
 Key endpoints:
 - `POST /auth/register` - Create user

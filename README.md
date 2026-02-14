@@ -92,22 +92,22 @@ python start_servers.py
 ```
 
 This starts:
-- Flask API on `http://localhost:5000`
+- Flask API on `http://localhost:5001`
 - SMTP Server on port 2525
 
 **Firewall Configuration** (if accessing from other computers):
 ```bash
 sudo ufw allow 2525/tcp  # For SMTP server
-sudo ufw allow 5000/tcp  # For Flask API (optional)
+sudo ufw allow 5001/tcp  # For Flask API (optional)
 ```
 
-The server will start on `http://localhost:5000`
+The server will start on `http://localhost:5001`
 
 ## API Documentation
 
 ### Interactive Documentation
 
-Once the server is running, visit: **http://localhost:5000/docs**
+Once the server is running, visit: **http://localhost:5001/docs**
 
 This provides a Swagger UI where you can:
 - Browse all available endpoints
@@ -155,12 +155,12 @@ Get a token by registering and logging in:
 
 ```bash
 # Register
-curl -X POST http://localhost:5000/auth/register \
+curl -X POST http://localhost:5001/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "password123", "name": "Test User"}'
 
 # Login
-curl -X POST http://localhost:5000/auth/login \
+curl -X POST http://localhost:5001/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "user@example.com", "password": "password123"}'
 ```
