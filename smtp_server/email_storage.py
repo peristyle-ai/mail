@@ -202,13 +202,23 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         
         folder_id = folder['id']
         
+        # Sanitize strings to remove NUL characters (0x00) which PostgreSQL rejects
+        def sanitize_string(s):
+            if s is None:
+                return ''
+            return s.replace('\x00', '')
+        
+        subject_clean = sanitize_string(subject)
+        body_clean = sanitize_string(body)
+        headers_clean = sanitize_string(headers_str)
+        
         # Insert email
         cursor.execute(
             '''INSERT INTO emails 
                (sender_id, folder_id, subject, body, headers, created_at, is_read) 
                VALUES (%s, %s, %s, %s, %s, %s, %s) 
                RETURNING id''',
-            (user_id, folder_id, subject, body, headers_str, datetime.now(timezone.utc), False)
+            (user_id, folder_id, subject_clean, body_clean, headers_clean, datetime.now(timezone.utc), False)
         )
         
         email_id = cursor.fetchone()['id']
