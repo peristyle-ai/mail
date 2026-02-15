@@ -43,7 +43,7 @@ security:
   # SPF validation
   spf:
     enabled: true
-    reject_on_fail: true
+    reject_on_fail: false  # Changed: Don't reject, just flag SPF failures
   
   # Greylisting
   greylist:

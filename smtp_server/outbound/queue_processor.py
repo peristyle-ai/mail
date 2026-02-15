@@ -222,6 +222,7 @@ class OutboundQueueProcessor:
 			
 			# Build email message
 			import uuid
+			import re
 			msg = EmailMessage()
 			msg['From'] = from_address
 			msg['To'] = recipient
@@ -232,7 +233,18 @@ class OutboundQueueProcessor:
 			msg_id = f"<{uuid.uuid4().hex}@{domain}>"
 			msg['Message-ID'] = msg_id
 			
-			msg.set_content(email_row['body'])
+			# Detect if content is HTML and set appropriate content type
+			body = email_row['body'] or ''
+			# Check for common HTML tags to detect HTML content
+			html_pattern = re.compile(r'<(html|head|body|div|span|p|a|img|table|tr|td|th|h[1-6]|br|hr|style|script)', re.IGNORECASE)
+			
+			if html_pattern.search(body):
+				# Content appears to be HTML
+				logger.info(f"Detected HTML content for email {email_id}, setting text/html content type")
+				msg.set_content(body, subtype='html', charset='utf-8')
+			else:
+				# Plain text content
+				msg.set_content(body)
 			
 			# Add original headers (skip content-related and address headers)
 			if email_row['headers']:
