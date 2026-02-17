@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
 import logging
+from email import message_from_string
+from email.message import EmailMessage
 
 bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
@@ -244,6 +246,141 @@ def create_email():
 			logger.error(f"Error queueing outbound email: {e}")
 	
 	return jsonify({'id': email_id}), 201
+
+@bp.route('/api/emails/mime', methods=['POST'])
+@token_required
+def create_mime_email():
+	"""
+	Create a new email from raw MIME content with embedded images
+	---
+	tags:
+	  - Emails
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: body
+	    name: body
+	    schema:
+	      type: object
+	      required:
+	        - to
+	        - mime_content
+	      properties:
+	        to:
+	          type: string
+	          description: Recipient email address
+	        mime_content:
+	          type: string
+	          description: Raw MIME multipart message content
+	responses:
+	  201:
+	    description: Email created successfully
+	    schema:
+	      type: object
+	      properties:
+	        id:
+	          type: integer
+	        queued:
+	          type: boolean
+	        status:
+	          type: string
+	  400:
+	    description: Invalid MIME content
+	  401:
+	    description: Unauthorized
+	"""
+	data = request.get_json()
+	
+	if not data or 'mime_content' not in data:
+		return jsonify({'error': 'mime_content is required'}), 400
+	
+	mime_content = data.get('mime_content')
+	to_address = data.get('to')
+	
+	if not to_address:
+		return jsonify({'error': 'to is required'}), 400
+	
+	try:
+		# Parse the MIME message
+		msg = message_from_string(mime_content)
+		
+		# Validate it's a valid MIME message
+		if not msg:
+			return jsonify({'error': 'Failed to parse MIME message'}), 400
+		
+		# Get sender's email from current user
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
+		sender_row = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		
+		if not sender_row:
+			return jsonify({'error': 'Sender not found'}), 400
+		
+		from_address = sender_row['email']
+		
+		# Ensure the MIME message has proper From header
+		if not msg.get('From'):
+			msg['From'] = from_address
+		
+		# Ensure the MIME message has proper To header
+		if not msg.get('To'):
+			msg['To'] = to_address
+		
+		# Ensure the MIME message has a Message-ID
+		if not msg.get('Message-ID'):
+			import uuid
+			msg['Message-ID'] = f"<{uuid.uuid4()}@{from_address.split('@')[-1]}>"
+		
+		# The parsed message is a Message object
+		# Ensure required headers are present
+		if not msg.get('Subject'):
+			msg['Subject'] = 'No Subject'
+		
+		# Import and use the queue function
+		from smtp_server.outbound.storage import queue_outbound_email
+		
+		# Determine recipients
+		to_addresses = [to_address] if isinstance(to_address, str) else to_address
+		
+		# Extract subject and body for database storage
+		subject = msg.get('Subject', '')
+		
+		# For MIME emails, store the full MIME content in body
+		# (not just a preview) so embedded images are preserved
+		body_preview = mime_content
+		
+		# Prepare headers - clean any newlines that could break DKIM
+		headers_dict = {}
+		for key, value in msg.items():
+			# Remove any newlines from header values to prevent DKIM issues
+			clean_value = str(value).replace('\n', ' ').replace('\r', ' ')
+			headers_dict[key] = clean_value
+		
+		# Queue the email
+		email_id, queue_ids = queue_outbound_email(
+			sender_id=request.current_user['id'],
+			from_address=from_address,
+			to_addresses=to_addresses,
+			subject=subject,
+			body=body_preview,
+			message=msg,
+			headers=headers_dict
+		)
+		
+		logger.info(f"MIME email queued: ID={email_id}, recipients={to_addresses}")
+		
+		return jsonify({
+			'id': email_id,
+			'queued': len(queue_ids) > 0,
+			'status': 'pending'
+		}), 201
+		
+	except Exception as e:
+		logger.error(f"Error processing MIME email: {e}")
+		return jsonify({'error': f'Invalid MIME content: {str(e)}'}), 400
 
 @bp.route('/api/emails/<int:email_id>/read', methods=['POST'])
 @token_required

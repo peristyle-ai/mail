@@ -11,6 +11,7 @@ from .security import (
     SPFValidator,
     GreylistManager
 )
+from .blacklist_checker import check_ip_blacklisted, increment_blacklist_hit
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,14 @@ class SecureMailHandler:
             msg = email.message_from_bytes(data)
             
             logger.info(f"Processing email from {mail_from} ({client_ip}) to {rcpt_tos}")
+            
+            # 0. Blacklist check (first - immediate rejection)
+            is_blacklisted, blacklist_entry = check_ip_blacklisted(client_ip)
+            if is_blacklisted:
+                increment_blacklist_hit(client_ip)
+                reason = blacklist_entry.get('reason', 'IP blacklisted') if blacklist_entry else 'IP blacklisted'
+                logger.warning(f"Blacklisted IP {client_ip} attempted to send email - rejected: {reason}")
+                return f'550 {reason}'
             
             # 1. Rate limiting check for emails
             if self.rate_limiter:

@@ -223,38 +223,79 @@ class OutboundQueueProcessor:
 			# Build email message
 			import uuid
 			import re
-			msg = EmailMessage()
-			msg['From'] = from_address
-			msg['To'] = recipient
-			msg['Subject'] = email_row['subject']
+			from email import message_from_string
 			
-			# Generate Message-ID (required by Gmail)
-			domain = from_address.split('@')[-1]
-			msg_id = f"<{uuid.uuid4().hex}@{domain}>"
-			msg['Message-ID'] = msg_id
-			
-			# Detect if content is HTML and set appropriate content type
 			body = email_row['body'] or ''
-			# Check for common HTML tags to detect HTML content
-			html_pattern = re.compile(r'<(html|head|body|div|span|p|a|img|table|tr|td|th|h[1-6]|br|hr|style|script)', re.IGNORECASE)
 			
-			if html_pattern.search(body):
-				# Content appears to be HTML
-				logger.info(f"Detected HTML content for email {email_id}, setting text/html content type")
-				msg.set_content(body, subtype='html', charset='utf-8')
+			# Check if body is already a complete MIME message
+			# If it starts with "Content-Type:", it's likely a MIME message
+			if body.strip().startswith('Content-Type:'):
+				# Parse the stored MIME content
+				logger.info(f"Using stored MIME content for email {email_id}")
+				try:
+					msg = message_from_string(body)
+					
+					# Update From header (use del + add since replace_header may fail)
+					if msg.get('From'):
+						del msg['From']
+					msg['From'] = from_address
+					
+					# Update To header
+					if msg.get('To'):
+						del msg['To']
+					msg['To'] = recipient
+					
+					# Update Message-ID if needed
+					if msg.get('Message-ID'):
+						del msg['Message-ID']
+					domain = from_address.split('@')[-1]
+					msg['Message-ID'] = f"<{uuid.uuid4().hex}@{domain}>"
+					
+					logger.info(f"Successfully parsed MIME for email {email_id}, is_multipart={msg.is_multipart()}")
+				except Exception as e:
+					logger.warning(f"Failed to parse MIME content for email {email_id}: {e}, rebuilding message")
+					# Fall back to rebuilding the message
+					msg = EmailMessage()
+					msg['From'] = from_address
+					msg['To'] = recipient
+					msg['Subject'] = email_row['subject']
+					domain = from_address.split('@')[-1]
+					msg['Message-ID'] = f"<{uuid.uuid4().hex}@{domain}>"
+					html_pattern = re.compile(r'<(html|head|body|div|span|p|a|img|table|tr|td|th|h[1-6]|br|hr|style|script)', re.IGNORECASE)
+					if html_pattern.search(body):
+						msg.set_content(body, subtype='html', charset='utf-8')
+					else:
+						msg.set_content(body)
 			else:
-				# Plain text content
-				msg.set_content(body)
-			
-			# Add original headers (skip content-related and address headers)
-			if email_row['headers']:
-				skip_headers = {'from', 'to', 'subject', 'message-id', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
-				for line in email_row['headers'].split('\n'):
-					if ':' in line:
-						key, value = line.split(':', 1)
-						header_lower = key.strip().lower()
-						if header_lower not in skip_headers and not header_lower.startswith('content-'):
-							msg[key.strip()] = value.strip()
+				# Rebuild the message (existing behavior for plain text)
+				msg = EmailMessage()
+				msg['From'] = from_address
+				msg['To'] = recipient
+				msg['Subject'] = email_row['subject']
+				
+				# Generate Message-ID (required by Gmail)
+				domain = from_address.split('@')[-1]
+				msg_id = f"<{uuid.uuid4().hex}@{domain}>"
+				msg['Message-ID'] = msg_id
+				
+				# Detect if content is HTML and set appropriate content type
+				html_pattern = re.compile(r'<(html|head|body|div|span|p|a|img|table|tr|td|th|h[1-6]|br|hr|style|script)', re.IGNORECASE)
+				
+				if html_pattern.search(body):
+					logger.info(f"Detected HTML content for email {email_id}, setting text/html content type")
+					msg.set_content(body, subtype='html', charset='utf-8')
+				else:
+					msg.set_content(body)
+				
+				# Add original headers (skip content-related and address headers)
+				if email_row['headers']:
+					skip_headers = {'from', 'to', 'subject', 'message-id', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
+					for line in email_row['headers'].split('\n'):
+						if ':' in line:
+							key, value = line.split(':', 1)
+							header_lower = key.strip().lower()
+							if header_lower not in skip_headers and not header_lower.startswith('content-'):
+								msg[key.strip()] = value.strip()
 			
 			# Sign with DKIM if configured
 			if self.dkim_signer:

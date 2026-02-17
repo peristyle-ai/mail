@@ -85,6 +85,26 @@ CREATE INDEX idx_rate_violations_ip ON rate_limit_violations(client_ip);
 CREATE INDEX idx_rate_violations_time ON rate_limit_violations(timestamp);
 
 -- ============================================
+-- IP Blacklist Table (Phase 1)
+-- ============================================
+
+-- IP Blacklist table (immediate rejection)
+CREATE TABLE ip_blacklist (
+	id SERIAL PRIMARY KEY,
+	ip_address INET NOT NULL UNIQUE,
+	reason VARCHAR(255),
+	source VARCHAR(50), -- 'manual', 'auto_spf_fail', 'auto_rate_limit', 'dnsbl'
+	expires_at TIMESTAMP WITH TIME ZONE,  -- NULL = permanent
+	hit_count INTEGER DEFAULT 0,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	created_by INTEGER REFERENCES users(id) ON DELETE SET NULL  -- Track who added it
+);
+
+-- Indexes for blacklist
+CREATE INDEX idx_ip_blacklist_address ON ip_blacklist(ip_address);
+CREATE INDEX idx_ip_blacklist_expires ON ip_blacklist(expires_at);
+
+-- ============================================
 -- Outbound Email Delivery Tables
 -- ============================================
 

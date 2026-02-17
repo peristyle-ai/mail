@@ -11,7 +11,7 @@ REST API for email management with JWT authentication. Supports both inbound ema
 - **SMTP Port**: 2525 (for internal use)
 - **Swagger UI**: `http://localhost:5003/docs`
 - **Domain**: example.com.au
-- **Status**: All 112 tests passing, Gmail delivery working
+- **Status**: All 140 tests passing, Gmail delivery working
 
 ## Authentication
 
@@ -133,6 +133,83 @@ curl -X POST http://localhost:5003/api/emails \
 - The email will be DKIM signed before delivery
 - Delivery typically takes 30-60 seconds
 - Response includes `queued: true` for outbound emails
+
+#### Send Email with Embedded Images (MIME)
+**Endpoint**: `POST /api/emails/mime`
+
+Send emails with embedded images using raw MIME multipart format. Perfect for sending charts, plots, and rich HTML emails.
+
+**Request**:
+```bash
+curl -X POST http://localhost:5003/api/emails/mime \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "recipient@example.com",
+    "mime_content": "Content-Type: multipart/related; boundary=\"==boundary==\"\nMIME-Version: 1.0\nSubject: Report with Charts\nFrom: sender@example.com\nTo: recipient@example.com\n\n--==boundary==\nContent-Type: text/html; charset=utf-8\n\n<html><body><h1>Daily Report</h1><img src=\"cid:chart1\"></body></html>\n--==boundary==\nContent-Type: image/png\nContent-Transfer-Encoding: base64\nContent-ID: <chart1>\nContent-Disposition: inline; filename=\"chart.png\"\n\niVBORw0KGgo...\n--==boundary==--"
+  }'
+```
+
+**Request Body**:
+- `to` (required): Recipient email address
+- `mime_content` (required): Raw MIME multipart message content
+
+**HTML Requirements**:
+- Use `cid:` protocol to reference embedded images (e.g., `<img src="cid:chart1">`)
+- Match the Content-ID in the MIME part exactly (e.g., `Content-ID: <chart1>`)
+- Use `multipart/related` content type for the main message
+
+**Successful Response**:
+```json
+{
+  "id": 123,
+  "queued": true,
+  "status": "pending"
+}
+```
+
+**Error Response**:
+```json
+{
+  "error": "Invalid MIME content",
+  "details": "Failed to parse MIME message"
+}
+```
+
+**Python Example**:
+```python
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+import requests
+
+# Create MIME message
+msg = MIMEMultipart('related')
+msg['Subject'] = 'Daily Report'
+msg['From'] = 'sender@example.com'
+msg['To'] = 'recipient@example.com'
+
+# Add HTML
+html = '<html><body><img src="cid:chart1"></body></html>'
+msg.attach(MIMEText(html, 'html'))
+
+# Add image
+with open('chart.png', 'rb') as f:
+    img = MIMEImage(f.read())
+    img.add_header('Content-ID', '<chart1>')
+    img.add_header('Content-Disposition', 'inline', filename='chart.png')
+    msg.attach(img)
+
+# Send via API
+response = requests.post(
+    'http://localhost:5003/api/emails/mime',
+    headers={'Authorization': f'Bearer {token}'},
+    json={
+        'to': 'recipient@example.com',
+        'mime_content': msg.as_string()
+    }
+)
+```
 
 #### Mark as Read
 **Endpoint**: `POST /api/emails/<id>/read`
@@ -287,6 +364,176 @@ Content-Type: application/json
   "name": "Work"
 }
 ```
+
+---
+
+### IP Blacklist Management (NEW)
+
+Manage IP blacklist for blocking spam/abusive senders at the SMTP level.
+
+#### List Blacklisted IPs
+**Endpoint**: `GET /api/blacklist/ip`
+
+Query Parameters:
+- `source` (string): Filter by source (manual, auto_spf_fail, auto_rate_limit, dnsbl)
+- `active_only` (boolean): Only show non-expired entries (default: true)
+- `page` (integer): Page number (default: 1)
+- `limit` (integer): Results per page (default: 20)
+
+**Example**:
+```bash
+curl http://localhost:5003/api/blacklist/ip \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**:
+```json
+{
+  "blacklisted_ips": [
+    {
+      "id": 1,
+      "ip_address": "192.168.1.100",
+      "reason": "Repeated spam attempts",
+      "source": "manual",
+      "expires_at": null,
+      "hit_count": 5,
+      "created_at": "2026-02-16T10:00:00"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+#### Add IP to Blacklist
+**Endpoint**: `POST /api/blacklist/ip`
+
+**Request**:
+```bash
+curl -X POST http://localhost:5003/api/blacklist/ip \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip_address": "192.168.1.100",
+    "reason": "Spam source",
+    "source": "manual",
+    "expires_at": "2026-03-01T00:00:00Z"
+  }'
+```
+
+**Fields**:
+- `ip_address` (required): IPv4 or IPv6 address
+- `reason` (optional): Reason for blacklisting
+- `source` (optional): Source type (manual, auto_spf_fail, auto_rate_limit, dnsbl)
+- `expires_at` (optional): ISO 8601 datetime for temporary blocks
+
+**Response** (201 Created):
+```json
+{
+  "id": 1,
+  "ip_address": "192.168.1.100",
+  "reason": "Spam source",
+  "source": "manual",
+  "expires_at": "2026-03-01T00:00:00",
+  "hit_count": 0,
+  "created_at": "2026-02-16T10:00:00"
+}
+```
+
+#### Remove IP from Blacklist (by ID)
+**Endpoint**: `DELETE /api/blacklist/ip/<id>`
+
+**Example**:
+```bash
+curl -X DELETE http://localhost:5003/api/blacklist/ip/1 \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**:
+```json
+{
+  "status": "removed",
+  "ip_address": "192.168.1.100"
+}
+```
+
+#### Remove IP from Blacklist (by Address)
+**Endpoint**: `DELETE /api/blacklist/ip/address/<ip_address>`
+
+**Example**:
+```bash
+curl -X DELETE http://localhost:5003/api/blacklist/ip/address/192.168.1.100 \
+  -H "Authorization: Bearer <token>"
+```
+
+#### Check if IP is Blacklisted
+**Endpoint**: `GET /api/blacklist/ip/check/<ip_address>`
+
+**Example**:
+```bash
+curl http://localhost:5003/api/blacklist/ip/check/192.168.1.100 \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response** (when blacklisted):
+```json
+{
+  "ip_address": "192.168.1.100",
+  "is_blacklisted": true,
+  "entry": {
+    "id": 1,
+    "reason": "Spam source",
+    "source": "manual",
+    "expires_at": null,
+    "hit_count": 5
+  },
+  "message": "IP 192.168.1.100 is blacklisted"
+}
+```
+
+**Response** (when not blacklisted):
+```json
+{
+  "ip_address": "192.168.1.100",
+  "is_blacklisted": false,
+  "entry": null,
+  "message": "IP 192.168.1.100 is not blacklisted"
+}
+```
+
+#### Get Blacklist Statistics
+**Endpoint**: `GET /api/blacklist/stats`
+
+**Example**:
+```bash
+curl http://localhost:5003/api/blacklist/stats \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**:
+```json
+{
+  "total_entries": 10,
+  "active_entries": 8,
+  "expired_entries": 2,
+  "by_source": {
+    "manual": 5,
+    "auto_spf_fail": 3,
+    "auto_rate_limit": 2
+  },
+  "top_hit_ips": [
+    {"ip_address": "192.168.1.100", "hit_count": 50, "reason": "Spam"}
+  ]
+}
+```
+
+**Notes**:
+- Blacklisted IPs are blocked at the SMTP level before any processing
+- Use 550 rejection code for blacklisted connections
+- Hit counts track how many times an IP attempted to connect
+- Supports both IPv4 and IPv6 addresses
+- Expired entries are automatically ignored in checks
 
 ---
 
@@ -458,7 +705,7 @@ Run the test suite:
 python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 ```
 
-**Current Status**: All 112 tests passing
+**Current Status**: All 140 tests passing
 
 ---
 
@@ -472,6 +719,7 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 6. **Rate Limiting**: 30 emails/min per domain, 100/hour total
 7. **Queue Processing**: Every 30 seconds
 8. **Authentication**: All endpoints except /health require Bearer token
+9. **IP Blacklist**: All blacklist endpoints require Bearer token
 
 ---
 
@@ -487,6 +735,9 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ## Changelog
 
+- **2026-02-17**: Added MIME email endpoint (`POST /api/emails/mime`) for embedded images
+- **2026-02-16**: Added IP blacklist API (`/api/blacklist/ip/*` endpoints)
+- **2026-02-16**: Added blacklist checker module for SMTP-level IP blocking
 - **2026-02-15**: Added delivery status endpoint (`GET /api/emails/{id}/delivery-status`)
 - **2026-02-15**: Fixed greylist to auto-whitelist across all recipients
 - **2026-02-15**: Fixed NUL character handling in email storage
@@ -497,5 +748,5 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ---
 
-**Last Updated**: 2026-02-15
-**Status**: All 112 tests passing, Gmail delivery verified
+**Last Updated**: 2026-02-17
+**Status**: All 140 tests passing, Gmail delivery verified

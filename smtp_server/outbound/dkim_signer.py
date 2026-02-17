@@ -104,15 +104,15 @@ class DKIMSigner:
             logger.error(f"Error generating DKIM keys: {e}")
             raise
     
-    def sign_email(self, message: EmailMessage) -> Optional[EmailMessage]:
+    def sign_email(self, message) -> Optional[EmailMessage]:
         """
         Sign an email with DKIM.
         
         Args:
-            message: Email message to sign
+            message: Email message to sign (EmailMessage or Message)
             
         Returns:
-            Signed email message or None if signing failed
+            Signed email message or original if signing failed
         """
         if not self.private_key:
             logger.warning("DKIM signing skipped - no private key available")
@@ -120,7 +120,15 @@ class DKIMSigner:
         
         try:
             # Convert message to bytes
-            msg_bytes = message.as_bytes()
+            # Use policy=default for proper line ending handling
+            from email import policy
+            
+            # If it's already an EmailMessage, use it directly
+            if isinstance(message, EmailMessage):
+                msg_bytes = message.as_bytes(policy=policy.default)
+            else:
+                # For older Message objects, convert via string then encode
+                msg_bytes = message.as_string().encode('utf-8')
             
             # Sign the message
             signature = dkim.sign(
@@ -134,14 +142,19 @@ class DKIMSigner:
             # Parse signature and add to message
             sig_str = signature.decode('ascii')
             
-            # Add DKIM-Signature header
-            message['DKIM-Signature'] = sig_str.replace('DKIM-Signature: ', '')
+            # Add DKIM-Signature header (remove the header name if present)
+            if sig_str.startswith('DKIM-Signature: '):
+                sig_str = sig_str[16:]  # Remove 'DKIM-Signature: '
+            
+            message['DKIM-Signature'] = sig_str
             
             logger.debug(f"DKIM signed email for {self.domain}")
             return message
             
         except Exception as e:
             logger.error(f"DKIM signing failed: {e}")
+            import traceback
+            logger.debug(f"DKIM signing error trace: {traceback.format_exc()}")
             # Return original message if signing fails
             return message
     
