@@ -35,6 +35,7 @@ def db():
 	cursor.execute("DELETE FROM attachments")
 	cursor.execute("DELETE FROM emails")
 	cursor.execute("DELETE FROM folders")
+	cursor.execute("DELETE FROM ip_blacklist")
 	# Note: We don't delete users here because auth_headers fixture needs them
 	
 	conn.commit()
