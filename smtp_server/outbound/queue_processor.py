@@ -91,14 +91,23 @@ class OutboundQueueProcessor:
 		
 		try:
 			# Get pending emails that are ready to send
+			# Also include 'sending' emails that have been stuck for > 5 minutes (crashed/restarted during send)
 			cursor.execute(
 				'''SELECT id, email_id, recipient_email, recipient_domain, 
 				   attempt_count
 				   FROM outbound_queue
-				   WHERE status IN ('pending', 'retry')
-				   AND (next_attempt IS NULL OR next_attempt <= %s)
+				   WHERE (
+				       status IN ('pending', 'retry')
+				       AND (next_attempt IS NULL OR next_attempt <= %s)
+				   ) OR (
+				       status = 'sending'
+				       AND last_attempt < %s
+				   )
 				   LIMIT 10''',
-				(datetime.now(timezone.utc),)
+				(
+					datetime.now(timezone.utc),
+					datetime.now(timezone.utc) - timedelta(minutes=5)
+				)
 			)
 			pending = cursor.fetchall()
 			
