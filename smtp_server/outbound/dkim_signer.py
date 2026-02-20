@@ -146,6 +146,9 @@ class DKIMSigner:
             if sig_str.startswith('DKIM-Signature: '):
                 sig_str = sig_str[16:]  # Remove 'DKIM-Signature: '
             
+            # Remove any line breaks from signature - header values cannot contain CR/LF
+            sig_str = sig_str.replace('\r', '').replace('\n', '').strip()
+            
             message['DKIM-Signature'] = sig_str
             
             logger.debug(f"DKIM signed email for {self.domain}")
