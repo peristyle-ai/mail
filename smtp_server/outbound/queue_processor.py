@@ -76,13 +76,17 @@ class OutboundQueueProcessor:
 	
 	def _process_loop(self):
 		"""Main processing loop."""
+		logger.info("Queue processor loop started")
 		while self.running:
 			try:
 				self._process_pending_emails()
 			except Exception as e:
 				logger.error(f"Error in processing loop: {e}")
+				import traceback
+				logger.error(traceback.format_exc())
 			
 			time.sleep(self.check_interval)
+		logger.info("Queue processor loop stopped")
 	
 	def _process_pending_emails(self):
 		"""Process all pending emails in the queue."""
