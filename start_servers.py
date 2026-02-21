@@ -13,6 +13,9 @@ import signal
 import argparse
 import threading
 import time
+import logging
+import traceback
+from logging.handlers import RotatingFileHandler
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,15 +24,57 @@ from app import create_app
 from smtp_server import start_smtp_server, stop_smtp_server
 from smtp_server.outbound import OutboundQueueProcessor
 
+# Set up logging with rotation
+log_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+console_handler.setLevel(logging.INFO)
+
+# File handler with rotation (10MB per file, keep 5 backups)
+file_handler = RotatingFileHandler(
+    '/tmp/mail_server.log',
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5
+)
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.DEBUG)
+
+# Root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_logger.addHandler(console_handler)
+root_logger.addHandler(file_handler)
+
+logger = logging.getLogger(__name__)
+
 
 def run_flask_app(port=5000, debug=False):
     """Run Flask app in a thread."""
-    app = create_app()
-    print(f"Starting Flask API on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)
+    try:
+        app = create_app()
+        logger.info(f"Starting Flask API on port {port}...")
+        app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)
+    except Exception as e:
+        logger.error(f"Flask app crashed: {e}")
+        logger.error(traceback.format_exc())
+        raise
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully."""
+    logger.info(f"Received signal {signum}, shutting down...")
+    sys.exit(0)
 
 
 def main():
+    # Set up signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     parser = argparse.ArgumentParser(description='Start Mail Server (Flask API + SMTP)')
     parser.add_argument('--flask-port', type=int, default=5003, help='Flask API port (default: 5003)')
     parser.add_argument('--smtp-port', type=int, default=2525, help='SMTP server port (default: 2525, use 587 with sudo)')
@@ -67,16 +112,22 @@ def main():
         print("✓ Outbound Queue Processor started")
         print()
         
-        # Start Flask in a separate thread
-        print(f"Starting Flask API on port {args.flask_port}...")
+        # Start Flask in a separate thread (non-daemon to catch errors)
+        logger.info(f"Starting Flask API on port {args.flask_port}...")
         flask_thread = threading.Thread(
             target=run_flask_app,
             args=(args.flask_port, args.debug),
-            daemon=True
+            daemon=False  # Changed to non-daemon so we can catch errors
         )
         flask_thread.start()
         time.sleep(2)  # Give Flask time to start
-        print(f"✓ Flask API started on port {args.flask_port}")
+        
+        # Check if Flask thread is still alive
+        if not flask_thread.is_alive():
+            logger.error("Flask API failed to start!")
+            raise RuntimeError("Flask API failed to start")
+        
+        logger.info(f"✓ Flask API started on port {args.flask_port}")
         print()
         
         print("="*70)
@@ -100,9 +151,20 @@ def main():
         print("="*70)
         print()
         
-        # Keep running until interrupted
+        # Keep running until interrupted with error handling
         while True:
-            time.sleep(1)
+            try:
+                time.sleep(1)
+                # Check if Flask thread died
+                if not flask_thread.is_alive():
+                    logger.error("Flask API thread has died!")
+                    raise RuntimeError("Flask API thread has died")
+            except Exception as e:
+                logger.error(f"Error in main loop: {e}")
+                logger.error(traceback.format_exc())
+                # Don't exit immediately, give time for cleanup
+                time.sleep(5)
+                raise
             
     except KeyboardInterrupt:
         print("\n\nShutting down servers...")
