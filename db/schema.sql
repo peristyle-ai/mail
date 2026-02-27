@@ -26,6 +26,7 @@ CREATE TABLE emails (
 	subject VARCHAR(500),
 	body TEXT,
 	body_html TEXT,
+	raw_email TEXT,
 	headers TEXT,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 	is_read BOOLEAN DEFAULT FALSE,

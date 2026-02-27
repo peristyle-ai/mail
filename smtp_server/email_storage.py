@@ -240,13 +240,21 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         body_html_clean = sanitize_string(body_html)
         headers_clean = sanitize_string(headers_str)
         
+        # Store raw email for future extraction
+        raw_email_str = ''
+        if raw_data:
+            try:
+                raw_email_str = sanitize_string(raw_data.decode('utf-8', errors='replace'))
+            except:
+                raw_email_str = sanitize_string(str(raw_data))
+        
         # Insert email
         cursor.execute(
             '''INSERT INTO emails 
-               (sender_id, folder_id, subject, body, body_html, headers, created_at, is_read) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+               (sender_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) 
                RETURNING id''',
-            (user_id, folder_id, subject_clean, body_clean, body_html_clean, headers_clean, datetime.now(timezone.utc), False)
+            (user_id, folder_id, subject_clean, body_clean, body_html_clean, raw_email_str, headers_clean, datetime.now(timezone.utc), False)
         )
         
         email_id = cursor.fetchone()['id']
