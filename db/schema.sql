@@ -107,6 +107,25 @@ CREATE INDEX idx_ip_blacklist_address ON ip_blacklist(ip_address);
 CREATE INDEX idx_ip_blacklist_expires ON ip_blacklist(expires_at);
 
 -- ============================================
+-- Sender Blocklist Table
+-- ============================================
+
+-- Sender Blocklist table (blocks specific emails or entire domains)
+CREATE TABLE sender_blocklist (
+	id SERIAL PRIMARY KEY,
+	email VARCHAR(255),
+	domain VARCHAR(255),
+	source VARCHAR(50) DEFAULT 'manual',
+	blocked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	blocked_by INTEGER REFERENCES users(id),
+	notes TEXT,
+	CONSTRAINT check_block_target CHECK (email IS NOT NULL OR domain IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX idx_sender_blocklist_email ON sender_blocklist(email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX idx_sender_blocklist_domain ON sender_blocklist(domain) WHERE email IS NULL AND domain IS NOT NULL;
+
+-- ============================================
 -- Outbound Email Delivery Tables
 -- ============================================
 
