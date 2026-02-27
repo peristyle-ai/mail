@@ -14,6 +14,10 @@ def init_db():
 		schema = f.read()
 		cursor.execute(schema)
 	
+	with open('db/add_body_html.sql', 'r') as f:
+		migration = f.read()
+		cursor.execute(migration)
+	
 	conn.commit()
 	cursor.close()
 	conn.close()

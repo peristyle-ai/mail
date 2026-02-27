@@ -20,33 +20,60 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
-def extract_email_body(msg: EmailMessage) -> str:
-    """Extract text body from email message."""
-    body = ""
+def extract_bodies(msg: EmailMessage) -> tuple:
+    """
+    Extract plain text and HTML bodies from email message.
+    
+    Returns:
+        tuple: (plain_text, html)
+    """
+    plain_text = ""
+    html = ""
     
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
-            if content_type == "text/plain":
-                try:
-                    body = part.get_payload(decode=True).decode('utf-8')
-                    break
-                except:
-                    try:
-                        body = part.get_payload(decode=True).decode('latin-1')
-                        break
-                    except:
-                        continue
-    else:
-        try:
-            body = msg.get_payload(decode=True).decode('utf-8')
-        except:
+            
+            # Skip attachments
+            content_disposition = part.get('Content-Disposition', '')
+            if 'attachment' in content_disposition:
+                continue
+            
+            payload = part.get_payload(decode=True)
+            if payload is None:
+                continue
+            
             try:
-                body = msg.get_payload(decode=True).decode('latin-1')
+                decoded = payload.decode('utf-8')
             except:
-                body = str(msg.get_payload())
+                try:
+                    decoded = payload.decode('latin-1')
+                except:
+                    continue
+            
+            if content_type == "text/plain" and not plain_text:
+                plain_text = decoded
+            elif content_type == "text/html" and not html:
+                html = decoded
+    else:
+        # Single part email
+        content_type = msg.get_content_type()
+        payload = msg.get_payload(decode=True)
+        if payload:
+            try:
+                decoded = payload.decode('utf-8')
+            except:
+                try:
+                    decoded = payload.decode('latin-1')
+                except:
+                    decoded = str(msg.get_payload())
+            
+            if content_type == "text/html":
+                html = decoded
+            else:
+                plain_text = decoded
     
-    return body
+    return plain_text, html
 
 
 def extract_subject(msg: EmailMessage) -> str:
@@ -144,7 +171,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         
         # Extract email data
         subject = extract_subject(message)
-        body = extract_email_body(message)
+        body, body_html = extract_bodies(message)
         
         # Get headers as string
         headers_str = ''
@@ -210,15 +237,16 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         
         subject_clean = sanitize_string(subject)
         body_clean = sanitize_string(body)
+        body_html_clean = sanitize_string(body_html)
         headers_clean = sanitize_string(headers_str)
         
         # Insert email
         cursor.execute(
             '''INSERT INTO emails 
-               (sender_id, folder_id, subject, body, headers, created_at, is_read) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s) 
+               (sender_id, folder_id, subject, body, body_html, headers, created_at, is_read) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
                RETURNING id''',
-            (user_id, folder_id, subject_clean, body_clean, headers_clean, datetime.now(timezone.utc), False)
+            (user_id, folder_id, subject_clean, body_clean, body_html_clean, headers_clean, datetime.now(timezone.utc), False)
         )
         
         email_id = cursor.fetchone()['id']
