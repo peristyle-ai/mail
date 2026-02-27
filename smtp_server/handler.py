@@ -12,6 +12,7 @@ from .security import (
     GreylistManager
 )
 from .blacklist_checker import check_ip_blacklisted, increment_blacklist_hit
+from .sender_blocklist_checker import check_sender_blocked
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,14 @@ class SecureMailHandler:
             
             logger.info(f"Processing email from {mail_from} ({client_ip}) to {rcpt_tos}")
             
-            # 0. Blacklist check (first - immediate rejection)
+            # 0. Sender blocklist check (reject blocked senders)
+            is_sender_blocked, block_entry = check_sender_blocked(mail_from)
+            if is_sender_blocked:
+                block_type = 'email' if block_entry and block_entry.get('email') else 'domain'
+                logger.warning(f"Blocked sender {mail_from} attempted to send email - rejected ({block_type} block)")
+                return '550 Sender blocked'
+            
+            # 1. IP Blacklist check (immediate rejection)
             is_blacklisted, blacklist_entry = check_ip_blacklisted(client_ip)
             if is_blacklisted:
                 increment_blacklist_hit(client_ip)
@@ -93,14 +101,14 @@ class SecureMailHandler:
                 logger.warning(f"Blacklisted IP {client_ip} attempted to send email - rejected: {reason}")
                 return f'550 {reason}'
             
-            # 1. Rate limiting check for emails
+            # 2. Rate limiting check for emails
             if self.rate_limiter:
                 allowed, reason = self.rate_limiter.check_email_allowed(client_ip)
                 if not allowed:
                     logger.warning(f"Rate limit exceeded: {client_ip} - {reason}")
                     return f'450 {reason}'
             
-            # 2. SPF validation
+            # 3. SPF validation
             if self.spf_validator:
                 spf_result, spf_explanation = self.spf_validator.validate(client_ip, mail_from)
                 logger.info(f"SPF result for {mail_from} from {client_ip}: {spf_result}")
@@ -112,7 +120,7 @@ class SecureMailHandler:
                     # Log but don't reject softfail
                     pass
             
-            # 3. Greylisting check (per recipient)
+            # 4. Greylisting check (per recipient)
             if self.greylist_manager:
                 for recipient in rcpt_tos:
                     allowed, reason = self.greylist_manager.check_sender(
@@ -122,11 +130,11 @@ class SecureMailHandler:
                         logger.info(f"Greylisted: {mail_from} -> {recipient} ({reason})")
                         return f'450 {reason}'
             
-            # 4. Record email in rate limiter
+            # 5. Record email in rate limiter
             if self.rate_limiter:
                 self.rate_limiter.add_email(client_ip)
             
-            # 5. Store email in database
+            # 6. Store email in database
             for recipient in rcpt_tos:
                 email_id = store_email(
                     sender=mail_from,

@@ -18,6 +18,10 @@ def init_db():
 		migration = f.read()
 		cursor.execute(migration)
 	
+	with open('db/add_sender_blocklist.sql', 'r') as f:
+		migration = f.read()
+		cursor.execute(migration)
+	
 	conn.commit()
 	cursor.close()
 	conn.close()

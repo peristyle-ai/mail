@@ -565,3 +565,305 @@ def get_blacklist_stats():
 		'by_source': by_source,
 		'top_hit_ips': top_hits
 	})
+
+
+# ============================================
+# Sender Blocklist Endpoints
+# ============================================
+
+@bp.route('/api/blacklist/sender', methods=['GET'])
+@token_required
+def list_sender_blocklist():
+	"""
+	List all blocked senders/domains
+	---
+	tags:
+	  - Blacklist
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: query
+	    name: page
+	    type: integer
+	    default: 1
+	    description: Page number
+	  - in: query
+	    name: limit
+	    type: integer
+	    default: 50
+	    description: Results per page
+	responses:
+	  200:
+	    description: List of blocked senders
+	    schema:
+	      type: object
+	      properties:
+	        entries:
+	          type: array
+	          items:
+	            type: object
+	            properties:
+	              id:
+	                type: integer
+	              email:
+	                type: string
+	              domain:
+	                type: string
+	              source:
+	                type: string
+	              blocked_at:
+	                type: string
+	                format: date-time
+	              blocked_by:
+	                type: integer
+	              notes:
+	                type: string
+	        total:
+	          type: integer
+	        page:
+	          type: integer
+	  401:
+	    description: Unauthorized
+	"""
+	page = request.args.get('page', 1, type=int)
+	limit = request.args.get('limit', 50, type=int)
+	offset = (page - 1) * limit
+	
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	cursor.execute('''
+		SELECT sb.id, sb.email, sb.domain, sb.source, sb.blocked_at,
+		       sb.blocked_by, sb.notes, u.email as blocked_by_email
+		FROM sender_blocklist sb
+		LEFT JOIN users u ON sb.blocked_by = u.id
+		ORDER BY sb.blocked_at DESC
+		LIMIT %s OFFSET %s
+	''', (limit, offset))
+	
+	entries = cursor.fetchall()
+	
+	cursor.execute('SELECT COUNT(*) as total FROM sender_blocklist')
+	total = cursor.fetchone()['total']
+	
+	cursor.close()
+	conn.close()
+	
+	return jsonify({
+		'entries': [dict(e) for e in entries],
+		'total': total,
+		'page': page
+	})
+
+
+@bp.route('/api/blacklist/sender', methods=['POST'])
+@token_required
+def add_sender_block():
+	"""
+	Block a sender email or domain
+	---
+	tags:
+	  - Blacklist
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: body
+	    name: body
+	    schema:
+	      type: object
+	      properties:
+	        email:
+	          type: string
+	          description: Specific email to block
+	        domain:
+	          type: string
+	          description: Domain to block (blocks all emails from this domain)
+	        notes:
+	          type: string
+	          description: Notes about why blocked
+	responses:
+	  201:
+	    description: Sender/domain blocked
+	  200:
+	    description: Already blocked
+	  400:
+	    description: Email or domain required
+	  401:
+	    description: Unauthorized
+	"""
+	data = request.get_json()
+	email = data.get('email', '').strip().lower() if data.get('email') else None
+	domain = data.get('domain', '').strip().lower() if data.get('domain') else None
+	notes = data.get('notes', '')
+	
+	if not email and not domain:
+		return jsonify({'error': 'Email or domain required'}), 400
+	
+	user_id = request.current_user['id']
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	try:
+		if email:
+			# Check if already blocked
+			cursor.execute('SELECT id FROM sender_blocklist WHERE email = %s', (email,))
+			if cursor.fetchone():
+				cursor.close()
+				conn.close()
+				return jsonify({'success': True, 'message': 'Already blocked'}), 200
+			
+			cursor.execute('''
+				INSERT INTO sender_blocklist (email, domain, blocked_by, notes)
+				VALUES (%s, %s, %s, %s)
+				RETURNING id
+			''', (email, None, user_id, notes))
+		else:
+			# Block domain
+			cursor.execute('SELECT id FROM sender_blocklist WHERE domain = %s AND email IS NULL', (domain,))
+			if cursor.fetchone():
+				cursor.close()
+				conn.close()
+				return jsonify({'success': True, 'message': 'Already blocked'}), 200
+			
+			cursor.execute('''
+				INSERT INTO sender_blocklist (domain, blocked_by, notes)
+				VALUES (%s, %s, %s)
+				RETURNING id
+			''', (domain, user_id, notes))
+		
+		result = cursor.fetchone()
+		conn.commit()
+		cursor.close()
+		conn.close()
+		
+		logger.info(f"Blocked sender: {email or domain} by user {user_id}")
+		return jsonify({'success': True, 'id': result['id']}), 201
+		
+	except Exception as e:
+		conn.rollback()
+		cursor.close()
+		conn.close()
+		logger.error(f"Error blocking sender: {e}")
+		return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/blacklist/sender/<int:block_id>', methods=['DELETE'])
+@token_required
+def remove_sender_block(block_id):
+	"""
+	Remove a sender from the blocklist
+	---
+	tags:
+	  - Blacklist
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: path
+	    name: block_id
+	    type: integer
+	    required: true
+	    description: Blocklist entry ID
+	responses:
+	  200:
+	    description: Sender unblocked
+	  404:
+	    description: Not found
+	  401:
+	    description: Unauthorized
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	cursor.execute('SELECT email, domain FROM sender_blocklist WHERE id = %s', (block_id,))
+	result = cursor.fetchone()
+	
+	if not result:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Not found'}), 404
+	
+	cursor.execute('DELETE FROM sender_blocklist WHERE id = %s', (block_id,))
+	conn.commit()
+	cursor.close()
+	conn.close()
+	
+	logger.info(f"Unblocked sender: {result['email'] or result['domain']} by user {request.current_user['id']}")
+	return jsonify({'success': True})
+
+
+@bp.route('/api/blacklist/sender/check', methods=['GET'])
+@token_required
+def check_sender_blocked_api():
+	"""
+	Check if a sender email is blocked
+	---
+	tags:
+	  - Blacklist
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: query
+	    name: email
+	    type: string
+	    required: true
+	    description: Email address to check
+	responses:
+	  200:
+	    description: Block status
+	    schema:
+	      type: object
+	      properties:
+	        blocked:
+	          type: boolean
+	        email:
+	          type: string
+	        domain:
+	          type: string
+	        block_type:
+	          type: string
+	        entry:
+	          type: object
+	  400:
+	    description: Email required
+	  401:
+	    description: Unauthorized
+	"""
+	email = request.args.get('email', '').strip().lower()
+	
+	if not email:
+		return jsonify({'error': 'Email required'}), 400
+	
+	domain = email.split('@')[-1] if '@' in email else None
+	
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	# Check both specific email and domain
+	cursor.execute('''
+		SELECT id, email, domain, source, notes, blocked_at
+		FROM sender_blocklist
+		WHERE email = %s OR (domain = %s AND email IS NULL)
+		LIMIT 1
+	''', (email, domain))
+	
+	result = cursor.fetchone()
+	cursor.close()
+	conn.close()
+	
+	if result:
+		block_type = 'email' if result['email'] else 'domain'
+		return jsonify({
+			'blocked': True,
+			'email': email,
+			'domain': domain,
+			'block_type': block_type,
+			'entry': dict(result)
+		})
+	else:
+		return jsonify({
+			'blocked': False,
+			'email': email,
+			'domain': domain,
+			'block_type': None,
+			'entry': None
+		})
