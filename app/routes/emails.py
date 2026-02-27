@@ -8,6 +8,15 @@ from email.message import EmailMessage
 bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
 
+
+def format_email_response(email_dict):
+	"""Format email dict for API response, mapping body_html to html."""
+	result = dict(email_dict)
+	if 'body_html' in result:
+		result['html'] = result.pop('body_html')
+	return result
+
+
 @bp.route('/api/emails', methods=['GET'])
 @token_required
 def list_emails():
@@ -47,7 +56,7 @@ def list_emails():
 	emails = cursor.fetchall()
 	cursor.close()
 	conn.close()
-	return jsonify([dict(e) for e in emails])
+	return jsonify([format_email_response(dict(e)) for e in emails])
 
 @bp.route('/api/emails/<int:email_id>', methods=['GET'])
 @token_required
@@ -83,7 +92,7 @@ def get_email(email_id):
 	conn.close()
 	if not email:
 		return jsonify({'error': 'Email not found'}), 404
-	return jsonify(dict(email))
+	return jsonify(format_email_response(dict(email)))
 
 @bp.route('/api/emails', methods=['POST'])
 @token_required

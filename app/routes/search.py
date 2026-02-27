@@ -4,6 +4,15 @@ from app.utils.auth import token_required
 
 bp = Blueprint('search', __name__)
 
+
+def format_email_response(email_dict):
+	"""Format email dict for API response, mapping body_html to html."""
+	result = dict(email_dict)
+	if 'body_html' in result:
+		result['html'] = result.pop('body_html')
+	return result
+
+
 @bp.route('/api/search', methods=['GET'])
 @token_required
 def search_emails():
@@ -98,7 +107,7 @@ def search_emails():
 	conn.close()
 	
 	return jsonify({
-		'emails': [dict(e) for e in emails],
+		'emails': [format_email_response(dict(e)) for e in emails],
 		'total': total,
 		'page': page,
 		'limit': limit
