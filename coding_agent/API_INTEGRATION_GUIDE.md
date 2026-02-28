@@ -339,13 +339,46 @@ def check_delivery_status(email_id):
         return None
 ```
 
-### Other Useful Endpoints
+### List Received Emails (with HTML)
 
-**List Sent Emails**:
+**Endpoint**: `GET /api/emails`
+
+**Description**: List all received emails. Each email now includes an `html` field with the HTML body content.
+
+**Request**:
 ```bash
-GET /api/emails
-Authorization: Bearer <token>
+curl http://localhost:5003/api/emails \
+  -H "Authorization: Bearer <token>"
 ```
+
+**Response** (each email includes):
+```json
+{
+  "id": 567,
+  "subject": "Test Email",
+  "body": "Plain text version...",
+  "html": "<!DOCTYPE html><html><body>HTML version...</body></html>",
+  "sender_id": 123,
+  "folder_id": 1,
+  "is_read": false,
+  "is_starred": false,
+  "created_at": "2026-02-28T10:30:00+10:00"
+}
+```
+
+**Get Single Email**:
+```bash
+curl http://localhost:5003/api/emails/567 \
+  -H "Authorization: Bearer <token>"
+```
+
+**Search Emails**:
+```bash
+curl "http://localhost:5003/api/search?q=keyword&folder_id=1&flag=unread" \
+  -H "Authorization: Bearer <token>"
+```
+
+### Other Useful Endpoints
 
 **Check Server Health**:
 ```bash
@@ -402,6 +435,87 @@ Authorization: Bearer <token>
 ```bash
 GET /api/blacklist/stats
 Authorization: Bearer <token>
+```
+
+### Sender Blocklist Management
+
+Block specific email addresses or entire domains at the SMTP level. Blocked senders are rejected before email storage.
+
+**List Blocked Senders**:
+```bash
+GET /api/blacklist/sender?page=1&limit=50
+Authorization: Bearer <token>
+```
+
+**Response**:
+```json
+{
+  "entries": [
+    {
+      "id": 1,
+      "email": "spam@example.com",
+      "domain": null,
+      "source": "manual",
+      "blocked_at": "2026-02-28T10:00:00+10:00",
+      "blocked_by": 268,
+      "notes": "Spam sender"
+    }
+  ],
+  "total": 5,
+  "page": 1
+}
+```
+
+**Block a Specific Email**:
+```bash
+POST /api/blacklist/sender
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "email": "spam@spammer.com",
+  "notes": "Spam sender"
+}
+```
+
+**Block an Entire Domain**:
+```bash
+POST /api/blacklist/sender
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "domain": "spamdomain.com",
+  "notes": "Spam domain - blocks all emails from this domain"
+}
+```
+
+**Unblock a Sender**:
+```bash
+DELETE /api/blacklist/sender/<block_id>
+Authorization: Bearer <token>
+```
+
+**Check if Sender is Blocked**:
+```bash
+curl "http://localhost:5003/api/blacklist/sender/check?email=test@spamdomain.com" \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**:
+```json
+{
+  "blocked": true,
+  "email": "test@spamdomain.com",
+  "domain": "spamdomain.com",
+  "block_type": "domain",
+  "entry": {
+    "id": 1,
+    "domain": "spamdomain.com",
+    "source": "manual",
+    "notes": "Spam domain"
+  }
+}
 ```
 
 ---
@@ -713,6 +827,9 @@ curl -X POST http://localhost:5003/api/emails \
 5. **Queue**: Emails are processed every 30 seconds
 6. **Authentication**: All API endpoints (except /health) require Bearer token
 7. **IP Blacklist**: Use `/api/blacklist/ip/*` endpoints to manage blocked IPs
+8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
+9. **HTML Emails**: Received emails include `html` field for HTML content (requires server restart after Feb 28, 2026)
+10. **Raw Email Storage**: New emails store raw MIME content for future extraction
 
 ---
 
@@ -736,8 +853,11 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-02-17 (10:00 AEST)
-**Status**: All 140 tests passing, email delivery to Gmail working
-**New**: 
+**Last Updated**: 2026-02-28 (10:30 AEST)
+**Status**: All tests passing, email delivery to Gmail working
+**Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
 - IP Blacklist API endpoints (`/api/blacklist/ip/*`)
+- Sender Blocklist API endpoints (`/api/blacklist/sender/*`) - block emails/domains at SMTP level
+- HTML email body in received emails (`html` field in API responses)
+- Raw email storage for future extraction (`raw_email` field)
