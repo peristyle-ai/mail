@@ -343,7 +343,7 @@ def check_delivery_status(email_id):
 
 **Endpoint**: `GET /api/emails`
 
-**Description**: List all received emails. Each email now includes an `html` field with the HTML body content.
+**Description**: List all received emails for the authenticated user. Each email includes sender/recipient email addresses and optional HTML body.
 
 **Request**:
 ```bash
@@ -354,21 +354,24 @@ curl http://localhost:5003/api/emails \
 **Response** (each email includes):
 ```json
 {
-  "id": 567,
-  "subject": "Test Email",
+  "id": 760,
+  "subject": "The Microsoft-OpenAI Divorce Is Official",
   "body": "Plain text version...",
   "html": "<!DOCTYPE html><html><body>HTML version...</body></html>",
-  "sender_id": 123,
-  "folder_id": 1,
+  "sender_id": 277,
+  "sender_email": "noreply@medium.com",
+  "recipient_id": 268,
+  "recipient_email": "the operator@example.com.au",
+  "folder_id": 49,
   "is_read": false,
   "is_starred": false,
-  "created_at": "2026-02-28T10:30:00+10:00"
+  "created_at": "2026-03-09T01:30:43+10:00"
 }
 ```
 
 **Get Single Email**:
 ```bash
-curl http://localhost:5003/api/emails/567 \
+curl http://localhost:5003/api/emails/760 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -830,6 +833,7 @@ curl -X POST http://localhost:5003/api/emails \
 8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
 9. **HTML Emails**: Received emails include `html` field for HTML content (requires server restart after Feb 28, 2026)
 10. **Raw Email Storage**: New emails store raw MIME content for future extraction
+11. **Email Addresses**: Use `sender_email` and `recipient_email` in API responses (joined from users table)
 
 ---
 
@@ -853,7 +857,7 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-02-28 (10:30 AEST)
+**Last Updated**: 2026-03-09 (14:30 AEST)
 **Status**: All tests passing, email delivery to Gmail working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
@@ -861,3 +865,4 @@ If issues persist:
 - Sender Blocklist API endpoints (`/api/blacklist/sender/*`) - block emails/domains at SMTP level
 - HTML email body in received emails (`html` field in API responses)
 - Raw email storage for future extraction (`raw_email` field)
+- Sender/recipient email addresses in API (`sender_email`, `recipient_email` fields)

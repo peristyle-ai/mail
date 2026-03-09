@@ -22,6 +22,7 @@ CREATE TABLE folders (
 CREATE TABLE emails (
 	id SERIAL PRIMARY KEY,
 	sender_id INTEGER NOT NULL REFERENCES users(id),
+	recipient_id INTEGER REFERENCES users(id),
 	folder_id INTEGER REFERENCES folders(id),
 	subject VARCHAR(500),
 	body TEXT,

@@ -178,42 +178,54 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         for key, value in message.items():
             headers_str += f"{key}: {value}\n"
         
-        # Find or create user based on recipient domain
-        # For now, we'll accept emails for any user and store them
-        # The user needs to exist in the database
+        # Find or create sender user (the actual sender of the email)
+        # This is the FROM address, not the recipient
+        sender_normalized = sender.lower().strip('<>"\'') if sender else 'unknown@unknown'
+        cursor.execute('SELECT id FROM users WHERE email = %s', (sender_normalized,))
+        sender_user = cursor.fetchone()
         
-        # Try to find user by email
+        if not sender_user:
+            # Create user for sender if they don't exist
+            sender_username = sender_normalized.split('@')[0] if '@' in sender_normalized else 'unknown'
+            sender_domain = sender_normalized.split('@')[-1] if '@' in sender_normalized else 'unknown'
+            try:
+                cursor.execute(
+                    'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
+                    (sender_normalized, 'external_sender', sender_username, datetime.now(timezone.utc))
+                )
+                sender_user = cursor.fetchone()
+                conn.commit()
+                logger.info(f"Created sender user: {sender_normalized} with ID {sender_user['id']}")
+            except:
+                # User might have been created by another process, fetch again
+                cursor.execute('SELECT id FROM users WHERE email = %s', (sender_normalized,))
+                sender_user = cursor.fetchone()
+        
+        sender_id = sender_user['id']
+        
+        # Find or create recipient user (for folder assignment)
         cursor.execute('SELECT id FROM users WHERE email = %s', (recipient,))
-        user = cursor.fetchone()
+        recipient_user = cursor.fetchone()
         
-        if not user:
-            # Try to extract username from email (e.g., the operator@example.com.au -> the operator)
-            username = recipient.split('@')[0] if '@' in recipient else recipient
-            cursor.execute('SELECT id FROM users WHERE email = %s', (f"{username}@example.com",))
-            user = cursor.fetchone()
-        
-        if not user:
-            # Only create users for local domain addresses
+        if not recipient_user:
             local_domains = ['example.com.au', 'localhost', 'example.com']
             recipient_domain = recipient.split('@')[-1].lower() if '@' in recipient else ''
             
             if recipient_domain in local_domains:
-                logger.info(f"Creating local user for: {recipient}")
                 cursor.execute(
                     'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
                     (recipient, 'test_hash', recipient.split('@')[0], datetime.now(timezone.utc))
                 )
-                user = cursor.fetchone()
+                recipient_user = cursor.fetchone()
                 conn.commit()
-                logger.info(f"Created user {recipient} with ID {user['id']}")
-            else:
-                logger.warning(f"No user found for recipient: {recipient}")
-                logger.warning(f"Domain {recipient_domain} is not local. Email rejected.")
-                cursor.close()
-                conn.close()
-                return None
         
-        user_id = user['id']
+        if not recipient_user:
+            logger.warning(f"No user found for recipient: {recipient}")
+            cursor.close()
+            conn.close()
+            return None
+        
+        user_id = recipient_user['id']
         
         # Get or create default inbox folder
         cursor.execute('SELECT id FROM folders WHERE user_id = %s AND name = %s', (user_id, 'Inbox'))
@@ -248,13 +260,13 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             except:
                 raw_email_str = sanitize_string(str(raw_data))
         
-        # Insert email
+        # Insert email with correct sender_id and recipient_id
         cursor.execute(
             '''INSERT INTO emails 
-               (sender_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) 
+               (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
                RETURNING id''',
-            (user_id, folder_id, subject_clean, body_clean, body_html_clean, raw_email_str, headers_clean, datetime.now(timezone.utc), False)
+            (sender_id, user_id, folder_id, subject_clean, body_clean, body_html_clean, raw_email_str, headers_clean, datetime.now(timezone.utc), False)
         )
         
         email_id = cursor.fetchone()['id']
