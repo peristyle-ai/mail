@@ -10,10 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 def format_email_response(email_dict):
-	"""Format email dict for API response, mapping body_html to html."""
+	"""Format email dict for API response, mapping body_html to html and adding email addresses."""
 	result = dict(email_dict)
 	if 'body_html' in result:
 		result['html'] = result.pop('body_html')
+	# Add sender_email and recipient_email from joined tables
+	if 'sender_email' not in result and 'sender_id' in result:
+		result['sender_email'] = result.pop('sender_email', None)
+	if 'recipient_email' not in result and 'recipient_id' in result:
+		result['recipient_email'] = result.pop('recipient_email', None)
 	return result
 
 
@@ -41,6 +46,10 @@ def list_emails():
 	            type: string
 	          body:
 	            type: string
+	          sender_email:
+	            type: string
+	          recipient_email:
+	            type: string
 	          is_read:
 	            type: boolean
 	          is_starred:
@@ -52,7 +61,16 @@ def list_emails():
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM emails WHERE sender_id = %s ORDER BY created_at DESC', (request.current_user['id'],))
+	cursor.execute('''
+		SELECT e.*, 
+		       s.email as sender_email, 
+		       r.email as recipient_email
+		FROM emails e
+		LEFT JOIN users s ON e.sender_id = s.id
+		LEFT JOIN users r ON e.recipient_id = r.id
+		WHERE e.recipient_id = %s
+		ORDER BY e.created_at DESC
+	''', (request.current_user['id'],))
 	emails = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -86,7 +104,15 @@ def get_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM emails WHERE id = %s AND sender_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('''
+		SELECT e.*, 
+		       s.email as sender_email, 
+		       r.email as recipient_email
+		FROM emails e
+		LEFT JOIN users s ON e.sender_id = s.id
+		LEFT JOIN users r ON e.recipient_id = r.id
+		WHERE e.id = %s AND e.recipient_id = %s
+	''', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
 	cursor.close()
 	conn.close()
