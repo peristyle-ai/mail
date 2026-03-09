@@ -523,7 +523,7 @@ def delete_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('DELETE FROM emails WHERE id = %s AND sender_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('DELETE FROM emails WHERE id = %s AND recipient_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()

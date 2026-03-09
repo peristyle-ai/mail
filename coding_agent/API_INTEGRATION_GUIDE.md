@@ -381,6 +381,27 @@ curl "http://localhost:5003/api/search?q=keyword&folder_id=1&flag=unread" \
   -H "Authorization: Bearer <token>"
 ```
 
+### Delete Email
+
+**Endpoint**: `DELETE /api/emails/{id}`
+
+**Description**: Delete a received email. Users can only delete emails where they are the recipient.
+
+**Request**:
+```bash
+curl -X DELETE http://localhost:5003/api/emails/760 \
+  -H "Authorization: Bearer <token>"
+```
+
+**Response**:
+```json
+{
+  "status": "deleted"
+}
+```
+
+**Note**: Users can only delete emails they received (where they are the recipient). Sent emails cannot be deleted via this endpoint.
+
 ### Other Useful Endpoints
 
 **Check Server Health**:
