@@ -221,27 +221,28 @@ def create_email():
 			logger.error(f"Error queueing outbound email: {e}")
 			return jsonify({'error': str(e)}), 500
 	
-	# For local recipients (or mixed), create email normally
-	# Get or validate folder_id
-	folder_id = data.get('folder_id')
-	if not folder_id:
+	# For local recipients (or mixed), create email in Sent folder
+	# Get or create Sent folder
+	cursor.execute(
+		'SELECT id FROM folders WHERE user_id = %s AND name = %s',
+		(request.current_user['id'], 'Sent')
+	)
+	folder = cursor.fetchone()
+	if folder:
+		folder_id = folder['id']
+	else:
 		cursor.execute(
-			'SELECT id FROM folders WHERE user_id = %s AND name = %s',
-			(request.current_user['id'], 'Inbox')
+			'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+			(request.current_user['id'], 'Sent')
 		)
-		folder = cursor.fetchone()
-		if folder:
-			folder_id = folder['id']
-		else:
-			cursor.execute(
-				'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
-				(request.current_user['id'], 'Inbox')
-			)
-			folder_id = cursor.fetchone()['id']
+		folder_id = cursor.fetchone()['id']
+	
+	# Determine recipient_id: first local recipient or None
+	recipient_id = local_recipients[0][1] if local_recipients else None
 	
 	cursor.execute(
-		'INSERT INTO emails (sender_id, subject, body, folder_id) VALUES (%s, %s, %s, %s) RETURNING id',
-		(request.current_user['id'], data.get('subject'), data.get('body'), folder_id)
+		'INSERT INTO emails (sender_id, recipient_id, subject, body, folder_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+		(request.current_user['id'], recipient_id, data.get('subject'), data.get('body'), folder_id)
 	)
 	email_id = cursor.fetchone()['id']
 	
