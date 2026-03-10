@@ -92,18 +92,7 @@ def queue_outbound_email(
 		for key, value in message.items():
 			headers_str += f"{key}: {value}\n"
 		
-		# Store in emails table (in Sent folder)
-		cursor.execute(
-			'''INSERT INTO emails 
-			   (sender_id, folder_id, subject, body, headers, created_at, is_read)
-			   VALUES (%s, %s, %s, %s, %s, %s, %s)
-			   RETURNING id''',
-			(sender_id, sent_folder_id, subject, body, headers_str, 
-			 datetime.now(timezone.utc), True)  # Mark as read since user sent it
-		)
-		email_id = cursor.fetchone()['id']
-		
-		# Queue for each external recipient
+		# First pass: identify local vs external recipients
 		queue_ids = []
 		local_recipients = []
 		
@@ -118,6 +107,32 @@ def queue_outbound_email(
 				# Local delivery - store in recipient's inbox
 				local_recipients.append((to_address, local_user['id']))
 			else:
+				# External delivery - will queue it after creating email
+				pass
+		
+		# Determine recipient_id for sent email: first local recipient or NULL
+		recipient_id = local_recipients[0][1] if local_recipients else None
+		
+		# Store in emails table (in Sent folder) with recipient_id
+		cursor.execute(
+			'''INSERT INTO emails 
+			   (sender_id, recipient_id, folder_id, subject, body, headers, created_at, is_read)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+			   RETURNING id''',
+			(sender_id, recipient_id, sent_folder_id, subject, body, headers_str, 
+			 datetime.now(timezone.utc), True)  # Mark as read since user sent it
+		)
+		email_id = cursor.fetchone()['id']
+		
+		# Queue external recipients
+		for to_address in to_addresses:
+			domain = to_address.split('@')[-1].lower()
+			
+			# Check if this is a local domain (already did this above, but needed for domain)
+			cursor.execute('SELECT id FROM users WHERE email = %s', (to_address,))
+			local_user = cursor.fetchone()
+			
+			if not local_user:
 				# External delivery - queue it
 				cursor.execute(
 					'''INSERT INTO outbound_queue
