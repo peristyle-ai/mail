@@ -3,8 +3,8 @@
 ## Project Overview
 
 This is a local mail server with a REST API for local email management without SMTP. It consists of:
-- **Flask API** on port 5001 (`app/`)
-- **SMTP Server** on port 2525 (`smtp_server/outbound/`)
+- **Flask API** on port 5003 (`app/`)
+- **SMTP Server** on port 2525 (`smtp_server/`)
 - **PostgreSQL** database for storage
 
 ## Commands
@@ -12,10 +12,11 @@ This is a local mail server with a REST API for local email management without S
 ### Running the Application
 
 ```bash
-# Flask API only (development)
-flask run
+# Run as systemd user service (recommended)
+systemctl --user start mail-server
+systemctl --user status mail-server
 
-# Both Flask API + SMTP Server (recommended)
+# Manual run (development)
 python start_servers.py
 
 # Initialize database
@@ -25,7 +26,7 @@ python init_db.py
 ### Running Tests
 
 ```bash
-# Ensure test database exists
+# Ensure test database exists (requires postgres user)
 createdb mail_server_test
 
 # Run all tests
@@ -185,27 +186,38 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   │   ├── folders.py
 │   │   ├── search.py
 │   │   ├── attachments.py
-│   │   └── blacklist.py
+│   │   └── blacklist.py      # IP and sender blocklist
 │   └── utils/               # Utility functions
 │       ├── auth.py          # JWT, password hashing
 │       ├── users.py         # User management
 │       ├── emails.py
 │       ├── folders.py
 │       └── attachments.py
-├── smtp_server/
-│   └── outbound/            # SMTP client code
+├── smtp_server/             # SMTP server
+│   ├── handler.py           # SMTP message handler
+│   ├── email_storage.py     # Email storage to DB
+│   ├── sender_blocklist_checker.py  # Check blocked senders
+│   ├── blacklist_checker.py  # IP blacklist checks
+│   ├── security.py           # Rate limiting, SPF, greylisting
+│   └── outbound/            # Outbound delivery
 │       ├── delivery.py
 │       ├── mx_lookup.py
 │       ├── dkim_signer.py
 │       ├── rate_limiter.py
 │       ├── storage.py
 │       └── queue_processor.py
+├── scripts/                  # Utility scripts
+│   ├── backfill_html.py
+│   └── backfill_sender_recipient.py
 ├── tests/                   # Test suite
 ├── db/
 │   ├── schema.sql
 │   └── migrations/
-├── requirements.txt
-└── run.py
+├── coding_agent/            # Agent instructions
+├── systemd/user/             # User systemd service
+├── start_servers.py          # Start both Flask + SMTP
+├── init_db.py
+└── requirements.txt
 ```
 
 ## Important Notes
@@ -215,3 +227,20 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 - Maintain a todo list in `coding_agent/plan.md` for tracking work
 - Do not use npx or npm (this is a Python project)
 - Always use a virtual environment for pip installs: `python -m venv venv && source venv/bin/activate && pip install -r requirements.txt`
+
+## Key Features
+
+### Email Storage
+- Emails have `sender_id` (actual sender) and `recipient_id` (recipient user)
+- API returns `sender_email` and `recipient_email` (joined from users table)
+- HTML emails have `body_html` field (mapped to `html` in API)
+- Raw MIME content stored in `raw_email` column
+
+### Sender/Recipient Bug
+- CRITICAL: When storing received emails, use `recipient_id` for folder assignment, NOT `sender_id`
+- The emails list/get/delete endpoints filter by `recipient_id`, not `sender_id`
+- This was a bug that caused received emails to not be properly associated
+
+### Blocklist Features
+- **IP Blacklist**: `/api/blacklist/ip/*` - block by IP address
+- **Sender Blocklist**: `/api/blacklist/sender/*` - block specific emails or domains at SMTP level
