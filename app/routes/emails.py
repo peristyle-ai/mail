@@ -183,7 +183,7 @@ def create_email():
 		if isinstance(recipients, str):
 			recipients = [recipients]
 		for recipient_email in recipients:
-			cursor.execute('SELECT id FROM users WHERE email = %s', (recipient_email,))
+			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (recipient_email,))
 			recipient_user = cursor.fetchone()
 			if recipient_user:
 				local_recipients.append((recipient_email, recipient_user['id']))

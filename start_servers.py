@@ -24,6 +24,9 @@ from app import create_app
 from smtp_server import start_smtp_server, stop_smtp_server
 from smtp_server.outbound import OutboundQueueProcessor
 
+# Get host from environment or default to 0.0.0.0
+SERVER_HOST = os.environ.get('HOST', '0.0.0.0')
+
 # Set up logging with rotation
 log_formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -56,8 +59,8 @@ def run_flask_app(port=5000, debug=False):
     """Run Flask app in a thread."""
     try:
         app = create_app()
-        logger.info(f"Starting Flask API on port {port}...")
-        app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)
+        logger.info(f"Starting Flask API on {SERVER_HOST}:{port}...")
+        app.run(host=SERVER_HOST, port=port, debug=debug, use_reloader=False)
     except Exception as e:
         logger.error(f"Flask app crashed: {e}")
         logger.error(traceback.format_exc())
@@ -78,7 +81,7 @@ def main():
     parser = argparse.ArgumentParser(description='Start Mail Server (Flask API + SMTP)')
     parser.add_argument('--flask-port', type=int, default=5003, help='Flask API port (default: 5003)')
     parser.add_argument('--smtp-port', type=int, default=2525, help='SMTP server port (default: 2525, use 587 with sudo)')
-    parser.add_argument('--smtp-host', default='0.0.0.0', help='SMTP bind address (default: 0.0.0.0)')
+    parser.add_argument('--smtp-host', default=SERVER_HOST, help='SMTP bind address (default: HOST from .env)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()
