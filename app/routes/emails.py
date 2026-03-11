@@ -68,9 +68,9 @@ def list_emails():
 		FROM emails e
 		LEFT JOIN users s ON e.sender_id = s.id
 		LEFT JOIN users r ON e.recipient_id = r.id
-		WHERE e.recipient_id = %s
+		WHERE e.recipient_id = %s OR e.sender_id = %s
 		ORDER BY e.created_at DESC
-	''', (request.current_user['id'],))
+	''', (request.current_user['id'], request.current_user['id']))
 	emails = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -111,8 +111,8 @@ def get_email(email_id):
 		FROM emails e
 		LEFT JOIN users s ON e.sender_id = s.id
 		LEFT JOIN users r ON e.recipient_id = r.id
-		WHERE e.id = %s AND e.recipient_id = %s
-	''', (email_id, request.current_user['id']))
+		WHERE e.id = %s AND (e.recipient_id = %s OR e.sender_id = %s)
+	''', (email_id, request.current_user['id'], request.current_user['id']))
 	email = cursor.fetchone()
 	cursor.close()
 	conn.close()
