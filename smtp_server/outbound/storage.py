@@ -100,7 +100,7 @@ def queue_outbound_email(
 			domain = to_address.split('@')[-1].lower()
 			
 			# Check if this is a local domain
-			cursor.execute('SELECT id FROM users WHERE email = %s', (to_address,))
+			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (to_address,))
 			local_user = cursor.fetchone()
 			
 			if local_user:
@@ -129,7 +129,7 @@ def queue_outbound_email(
 			domain = to_address.split('@')[-1].lower()
 			
 			# Check if this is a local domain (already did this above, but needed for domain)
-			cursor.execute('SELECT id FROM users WHERE email = %s', (to_address,))
+			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (to_address,))
 			local_user = cursor.fetchone()
 			
 			if not local_user:
