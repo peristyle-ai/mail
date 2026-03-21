@@ -9,11 +9,14 @@ This guide provides all the information needed to integrate with the example.com
 ## Server Details
 
 - **Server Location**: `/opt/py_pg_accounts/git/py_pg_email`
-- **API Base URL**: `http://localhost:5003`
+- **API Base URL**: `http://192.168.4.41:5003`
 - **API Port**: 5003
 - **SMTP Port**: 2525 (for internal use)
+- **Host IP**: 192.168.4.41 (set in .env HOST variable)
 - **Domain**: example.com.au
-- **Authorized User**: the operator@example.com.au
+- **Authorized Users**: 
+  - the operator@example.com.au (password123)
+  - clawbie@example.com.au (password123)
 - **Test Recipient**: payroll@example.com
 
 ---
@@ -302,6 +305,14 @@ with open('chart2.png', 'rb') as f:
 
 # Send
 requests.post(url, json={'to': to, 'mime_content': msg.as_string()})
+```
+
+**Verify Attachments**: After sending, check attachments:
+```python
+# List attachments for a sent email
+response = requests.get(f"{BASE_URL}/api/emails/{email_id}/attachments", headers=headers)
+attachments = response.json()
+# Returns: [{'id': 6, 'file_name': 'test_document.pdf', 'content_type': 'application/pdf', 'file_size': 44, ...}]
 ```
 
 **Response**: Same as regular send endpoint
@@ -778,37 +789,38 @@ print('Password updated')
 
 ### Issue: Email created but not queued
 
-**Cause**: Email created in Inbox instead of being sent
+**Cause**: Recipient is treated as local user (is_local = TRUE in users table)
 
-**Check**: Ensure recipient is NOT a local user:
+**Check**: Verify recipient is not a local user:
 ```bash
 source venv/bin/activate
 python -c "
 from app.db import get_db_connection
 conn = get_db_connection()
 cursor = conn.cursor()
-cursor.execute(\"SELECT id FROM users WHERE email = 'payroll@example.com'\")
+cursor.execute(\"SELECT id, is_local FROM users WHERE email = 'payroll@example.com'\")
 user = cursor.fetchone()
-if user:
-    print(f'PROBLEM: User exists locally with ID {user[\"id\"]}')
+if user and user['is_local']:
+    print(f'PROBLEM: User exists locally with is_local=TRUE (ID {user[\"id\"]})')
+elif user:
+    print(f'OK: User is external (is_local=FALSE, ID {user[\"id\"]})')
 else:
-    print('OK: Recipient is external')
+    print('OK: Recipient is external (no local user)')
 cursor.close()
 conn.close()
 "
 ```
 
-### Issue: "TLS certificate verify failed"
+**Fix**: Set is_local = FALSE for external users:
+```sql
+UPDATE users SET is_local = FALSE WHERE email = 'payroll@example.com';
+```
 
-**Status**: FIXED in latest code (server now disables TLS verification when using IP addresses)
+### Issue: External emails not in outbound queue
 
-### Issue: "Missing Message-ID header"
+**Cause**: Recipients marked as local users (is_local = TRUE)
 
-**Status**: FIXED in latest code (server now adds Message-ID to all outbound emails)
-
-### Issue: "IPv6 sending guidelines"
-
-**Status**: FIXED in latest code (server now forces IPv4 delivery)
+**Status**: FIXED - emails to external users (is_local = FALSE) are now properly queued
 
 ---
 
@@ -844,7 +856,9 @@ curl -X POST http://localhost:5003/api/emails \
 
 ## Important Notes
 
-1. **User ID**: The authorized user is ID 268 (the operator@example.com.au)
+1. **User IDs**: 
+   - the operator@example.com.au is ID 268
+   - clawbie@example.com.au is ID 356
 2. **Test Recipient**: Always use payroll@example.com for testing
 3. **Delivery Time**: Expect 30-60 seconds for delivery to Gmail
 4. **Rate Limiting**: 30 emails/min per domain, 100/hour total
@@ -852,9 +866,11 @@ curl -X POST http://localhost:5003/api/emails \
 6. **Authentication**: All API endpoints (except /health) require Bearer token
 7. **IP Blacklist**: Use `/api/blacklist/ip/*` endpoints to manage blocked IPs
 8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
-9. **HTML Emails**: Received emails include `html` field for HTML content (requires server restart after Feb 28, 2026)
+9. **HTML Emails**: Received emails include `html` field for HTML content
 10. **Raw Email Storage**: New emails store raw MIME content for future extraction
 11. **Email Addresses**: Use `sender_email` and `recipient_email` in API responses (joined from users table)
+12. **is_local Column**: Users table has `is_local` boolean - TRUE for local users, FALSE for external senders
+13. **Server Host**: Must set HOST in .env file (e.g., HOST=192.168.4.41)
 
 ---
 
@@ -878,7 +894,7 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-03-09 (14:30 AEST)
+**Last Updated**: 2026-03-19 (12:15 AEST)
 **Status**: All tests passing, email delivery to Gmail working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
@@ -887,3 +903,7 @@ If issues persist:
 - HTML email body in received emails (`html` field in API responses)
 - Raw email storage for future extraction (`raw_email` field)
 - Sender/recipient email addresses in API (`sender_email`, `recipient_email` fields)
+- is_local column for users - distinguishes local vs external users
+- recipient_id properly set on sent emails
+- outbound queue properly populated for external recipients
+- Attachment listing works for MIME emails (`/api/emails/{id}/attachments`)

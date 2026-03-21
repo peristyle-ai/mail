@@ -62,8 +62,8 @@ def find_or_create_user(cursor, email: str) -> int:
     username = email.split('@')[0] if '@' in email else 'unknown'
     try:
         cursor.execute(
-            'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
-            (email, 'external_sender', username, datetime.now(timezone.utc))
+            'INSERT INTO users (email, password_hash, name, is_local, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+            (email, 'external_sender', username, False, datetime.now(timezone.utc))
         )
         user = cursor.fetchone()
         return user['id']

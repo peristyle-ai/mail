@@ -24,8 +24,10 @@ from app import create_app
 from smtp_server import start_smtp_server, stop_smtp_server
 from smtp_server.outbound import OutboundQueueProcessor
 
-# Get host from environment or default to 0.0.0.0
-SERVER_HOST = os.environ.get('HOST', '0.0.0.0')
+# Get host from environment - must be set
+SERVER_HOST = os.environ.get('HOST')
+if not SERVER_HOST:
+	raise ValueError("HOST environment variable is required. Set HOST in .env file.")
 
 # Set up logging with rotation
 log_formatter = logging.Formatter(
