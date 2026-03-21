@@ -4,6 +4,7 @@ from ..db import get_db_connection
 import logging
 from email import message_from_string
 from email.message import EmailMessage
+from email.policy import default
 
 bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
@@ -14,11 +15,14 @@ def format_email_response(email_dict):
 	result = dict(email_dict)
 	if 'body_html' in result:
 		result['html'] = result.pop('body_html')
-	# Add sender_email and recipient_email from joined tables
-	if 'sender_email' not in result and 'sender_id' in result:
-		result['sender_email'] = result.pop('sender_email', None)
-	if 'recipient_email' not in result and 'recipient_id' in result:
-		result['recipient_email'] = result.pop('recipient_email', None)
+	# Create sender object from joined data
+	sender_email = result.pop('sender_email', None)
+	if sender_email:
+		result['sender'] = {'email': sender_email, 'name': None}
+	# Create recipient object from joined data
+	recipient_email = result.pop('recipient_email', None)
+	if recipient_email:
+		result['recipient'] = {'email': recipient_email, 'name': None}
 	return result
 
 
@@ -407,6 +411,55 @@ def create_mime_email():
 		)
 		
 		logger.info(f"MIME email queued: ID={email_id}, recipients={to_addresses}")
+		
+		# Extract and save attachments from MIME content
+		from email.policy import default
+		import io
+		
+		parsed_msg = message_from_string(mime_content, policy=default)
+		
+		for part in parsed_msg.walk():
+			content_disposition = part.get('Content-Disposition', '')
+			content_type = part.get_content_type()
+			
+			# Skip multipart containers
+			if part.get_content_maintype() == 'multipart':
+				continue
+			
+			# Only include parts with attachment content-disposition and a filename
+			filename = part.get_filename()
+			if not filename:
+				continue
+			
+			# Skip inline parts that are the body (text, html)
+			if 'inline' in content_disposition:
+				continue
+			
+			# Get content type and size
+			content_type = part.get_content_type()
+			
+			# Get decoded payload
+			try:
+				payload = part.get_payload(decode=True)
+				if payload:
+					file_size = len(payload)
+				else:
+					continue
+			except:
+				continue
+			
+			# Save attachment record (without file content - stored in MIME)
+			conn = get_db_connection()
+			cursor = conn.cursor()
+			cursor.execute(
+				'''INSERT INTO attachments (email_id, file_name, content_type, file_size, created_at)
+				   VALUES (%s, %s, %s, %s, NOW()) RETURNING id''',
+				(email_id, filename, content_type, file_size)
+			)
+			conn.commit()
+			cursor.close()
+			conn.close()
+			logger.info(f"Saved attachment: {filename} for email {email_id}")
 		
 		return jsonify({
 			'id': email_id,

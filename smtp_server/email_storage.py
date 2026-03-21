@@ -190,8 +190,8 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             sender_domain = sender_normalized.split('@')[-1] if '@' in sender_normalized else 'unknown'
             try:
                 cursor.execute(
-                    'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
-                    (sender_normalized, 'external_sender', sender_username, datetime.now(timezone.utc))
+                    'INSERT INTO users (email, password_hash, name, is_local, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    (sender_normalized, 'external_sender', sender_username, False, datetime.now(timezone.utc))
                 )
                 sender_user = cursor.fetchone()
                 conn.commit()
@@ -213,8 +213,8 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             
             if recipient_domain in local_domains:
                 cursor.execute(
-                    'INSERT INTO users (email, password_hash, name, created_at) VALUES (%s, %s, %s, %s) RETURNING id',
-                    (recipient, 'test_hash', recipient.split('@')[0], datetime.now(timezone.utc))
+                    'INSERT INTO users (email, password_hash, name, is_local, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                    (recipient, 'test_hash', recipient.split('@')[0], True, datetime.now(timezone.utc))
                 )
                 recipient_user = cursor.fetchone()
                 conn.commit()
