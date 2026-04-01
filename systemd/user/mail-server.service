@@ -12,6 +12,7 @@ Environment=PYTHONPATH=/opt/py_pg_accounts/git/py_pg_email
 Environment=DATABASE_URL=postgresql://postgres:1234@localhost:5432/mail_server
 Environment=JWT_SECRET=kflss#vQ@oXp!b
 Environment=PROJECT_ROOT=/opt/py_pg_accounts/git/py_pg_email
+Environment=SMTP_RATE_LIMIT_MAX_CONNECTIONS=50
 
 # Use the startup script
 ExecStart=/opt/py_pg_accounts/git/py_pg_email/venv/bin/python /opt/py_pg_accounts/git/py_pg_email/start_servers.py --flask-port 5003 --smtp-port 2525

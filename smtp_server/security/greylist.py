@@ -20,19 +20,23 @@ logger = logging.getLogger(__name__)
 
 # Major email providers that use multiple IPs
 MAJOR_PROVIDERS = {
-    'gmail.com',
-    'googlemail.com',
-    'google.com',
-    'outlook.com',
-    'hotmail.com',
-    'live.com',
-    'msn.com',
-    'yahoo.com',
-    'ymail.com',
-    'aol.com',
-    'protonmail.com',
-    'icloud.com',
-    'me.com',
+	'gmail.com',
+	'googlemail.com',
+	'google.com',
+	'outlook.com',
+	'hotmail.com',
+	'live.com',
+	'msn.com',
+	'yahoo.com',
+	'ymail.com',
+	'aol.com',
+	'protonmail.com',
+	'icloud.com',
+	'me.com',
+	'example.ai',
+	'x.com',
+	'arkinvest.com',
+	'discord.com',
 }
 
 
@@ -65,10 +69,17 @@ class GreylistManager:
         )
     
     def _is_major_provider(self, sender: str) -> bool:
-        """Check if sender is from a major email provider."""
+        """Check if sender is from a major email provider (including subdomains)."""
         try:
             domain = sender.split('@')[-1].lower()
-            return domain in MAJOR_PROVIDERS
+            # Check exact match first
+            if domain in MAJOR_PROVIDERS:
+                return True
+            # Check if it's a subdomain of a major provider
+            for provider in MAJOR_PROVIDERS:
+                if domain.endswith('.' + provider):
+                    return True
+            return False
         except:
             return False
     
