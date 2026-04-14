@@ -250,11 +250,30 @@ def create_email():
 	)
 	email_id = cursor.fetchone()['id']
 	
-	# Add local recipients
+	# Add local recipients and create copies in their inboxes
 	for recipient_email, recipient_id in local_recipients:
 		cursor.execute(
 			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')
+		)
+		
+		# Get or create recipient's Inbox folder
+		cursor.execute(
+			'SELECT id FROM folders WHERE user_id = %s AND name = %s',
+			(recipient_id, 'Inbox')
+		)
+		inbox = cursor.fetchone()
+		if not inbox:
+			cursor.execute(
+				'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+				(recipient_id, 'Inbox')
+			)
+			inbox = cursor.fetchone()
+		
+		# Create copy in recipient's Inbox
+		cursor.execute(
+			'INSERT INTO emails (sender_id, recipient_id, subject, body, folder_id) VALUES (%s, %s, %s, %s, %s)',
+			(request.current_user['id'], recipient_id, data.get('subject'), data.get('body'), inbox['id'])
 		)
 	
 	conn.commit()
