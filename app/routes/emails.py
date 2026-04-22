@@ -72,9 +72,10 @@ def list_emails():
 		FROM emails e
 		LEFT JOIN users s ON e.sender_id = s.id
 		LEFT JOIN users r ON e.recipient_id = r.id
-		WHERE e.recipient_id = %s OR e.sender_id = %s
+		JOIN folders f ON e.folder_id = f.id
+		WHERE f.user_id = %s
 		ORDER BY e.created_at DESC
-	''', (request.current_user['id'], request.current_user['id']))
+	''', (request.current_user['id'],))
 	emails = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -115,8 +116,9 @@ def get_email(email_id):
 		FROM emails e
 		LEFT JOIN users s ON e.sender_id = s.id
 		LEFT JOIN users r ON e.recipient_id = r.id
-		WHERE e.id = %s AND (e.recipient_id = %s OR e.sender_id = %s)
-	''', (email_id, request.current_user['id'], request.current_user['id']))
+		JOIN folders f ON e.folder_id = f.id
+		WHERE e.id = %s AND f.user_id = %s
+	''', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
 	cursor.close()
 	conn.close()
@@ -519,7 +521,7 @@ def mark_as_read(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET is_read = TRUE WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
+	cursor.execute('UPDATE emails SET is_read = TRUE FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -556,12 +558,12 @@ def toggle_starred(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT is_starred FROM emails WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
+	cursor.execute('SELECT e.is_starred FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
 	if not email:
 		return jsonify({'error': 'Email not found'}), 404
 	new_state = not email['is_starred']
-	cursor.execute('UPDATE emails SET is_starred = %s WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (new_state, email_id, request.current_user['id'], request.current_user['id']))
+	cursor.execute('UPDATE emails SET is_starred = %s FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (new_state, email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -596,7 +598,7 @@ def delete_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('DELETE FROM emails WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
+	cursor.execute('DELETE FROM emails USING folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -642,7 +644,7 @@ def move_email(email_id):
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET folder_id = %s WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (data['folder_id'], email_id, request.current_user['id'], request.current_user['id']))
+	cursor.execute('UPDATE emails SET folder_id = %s FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (data['folder_id'], email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -718,9 +720,9 @@ def get_delivery_status(email_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	# Verify email exists and belongs to user
+	# Verify email exists and belongs to user (delivery status is for sent emails)
 	cursor.execute(
-		'SELECT id FROM emails WHERE id = %s AND sender_id = %s',
+		'SELECT e.id FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
 		(email_id, request.current_user['id'])
 	)
 	email = cursor.fetchone()

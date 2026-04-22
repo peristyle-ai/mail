@@ -134,3 +134,5 @@ uploads/
 certs/
 backups/
 
+#opencode sessions
+session-ses*
