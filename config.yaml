@@ -62,14 +62,24 @@ security:
 # Improves deliverability to Gmail, Outlook, etc.
 dkim:
   enabled: true
-  domain: "example.com.au"  # Your domain
-  selector: "default"            # DKIM selector
-  private_key: "certs/dkim_default.pem"
   
-  # DNS Record to add:
-  # Host: default._domainkey.example.com.au
-  # Type: TXT
-  # Value: (generated when you run key generation)
+  # Multi-domain DKIM configuration
+  # Add a domain entry for each domain you send from
+  domains:
+    - domain: "example.com.au"
+      selector: "default"
+      private_key: "certs/dkim_default.pem"
+    - domain: "example.ai"
+      selector: "fencemate"
+      private_key: "certs/dkim_fencemate.pem"
+    - domain: "example.ai"
+      selector: "default"
+      private_key: "certs/dkim_default.pem"
+  
+  # Fallback single domain config (used if domains list is empty)
+  domain: "example.com.au"
+  selector: "default"
+  private_key: "certs/dkim_default.pem"
 
 # SPF Record - add this to your DNS:
 # Type: TXT

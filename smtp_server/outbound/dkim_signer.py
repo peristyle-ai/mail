@@ -8,7 +8,7 @@ and prevent spoofing.
 import dkim
 import logging
 import os
-from typing import Optional
+from typing import Optional, Dict
 from email.message import EmailMessage
 
 logger = logging.getLogger(__name__)
@@ -194,39 +194,118 @@ Note: The private key will be saved to certs/dkim_{selector}.pem
 
 
 def load_dkim_config(config_path: str = "config.yaml") -> Optional[DKIMSigner]:
-    """Load DKIM configuration from config file."""
-    try:
-        import yaml
-        
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        dkim_config = config.get('dkim', {})
-        
-        if not dkim_config.get('enabled', False):
-            logger.info("DKIM signing disabled in config")
-            return None
-        
-        domain = dkim_config.get('domain')
-        selector = dkim_config.get('selector', 'default')
-        private_key = dkim_config.get('private_key', f'certs/dkim_{selector}.pem')
-        
-        if not domain:
-            logger.warning("DKIM domain not configured")
-            return None
-        
-        signer = DKIMSigner(
-            domain=domain,
-            selector=selector,
-            private_key_path=private_key
-        )
-        
-        if not signer.private_key:
-            logger.warning(f"DKIM private key not found at {private_key}")
-            logger.info("Run key generation first")
-        
-        return signer
-        
-    except Exception as e:
-        logger.error(f"Error loading DKIM config: {e}")
-        return None
+	"""Load DKIM configuration from config file.
+	
+	Supports multi-domain configuration. The 'domains' list is checked first,
+	then falls back to single 'domain' key for backwards compatibility.
+	"""
+	try:
+		import yaml
+		
+		with open(config_path, 'r') as f:
+			config = yaml.safe_load(f)
+		
+		dkim_config = config.get('dkim', {})
+		
+		if not dkim_config.get('enabled', False):
+			logger.info("DKIM signing disabled in config")
+			return None
+		
+		# Support multi-domain configuration
+		domains_config = dkim_config.get('domains', [])
+		if domains_config:
+			# Return the first configured domain's signer as default
+			# The caller should use MultiDomainDKIMSigner for multi-domain support
+			for domain_conf in domains_config:
+				domain = domain_conf.get('domain')
+				selector = domain_conf.get('selector', 'default')
+				private_key = domain_conf.get('private_key', f'certs/dkim_{selector}.pem')
+				if domain:
+					signer = DKIMSigner(
+						domain=domain,
+						selector=selector,
+						private_key_path=private_key
+					)
+					if signer.private_key:
+						logger.info(f"DKIM loaded for domain: {domain} (selector: {selector})")
+						return signer
+		
+		# Single domain fallback (backwards compatible)
+		domain = dkim_config.get('domain')
+		selector = dkim_config.get('selector', 'default')
+		private_key = dkim_config.get('private_key', f'certs/dkim_{selector}.pem')
+		
+		if not domain:
+			logger.warning("DKIM domain not configured")
+			return None
+		
+		signer = DKIMSigner(
+			domain=domain,
+			selector=selector,
+			private_key_path=private_key
+		)
+		
+		if not signer.private_key:
+			logger.warning(f"DKIM private key not found at {private_key}")
+			logger.info("Run key generation first")
+		
+		return signer
+		
+	except Exception as e:
+		logger.error(f"Error loading DKIM config: {e}")
+		return None
+
+
+def load_multi_domain_dkim(config_path: str = "config.yaml") -> Dict[str, DKIMSigner]:
+	"""Load DKIM signers for all configured domains.
+	
+	Returns:
+		Dict mapping domain name to DKIMSigner instance
+	"""
+	try:
+		import yaml
+		
+		with open(config_path, 'r') as f:
+			config = yaml.safe_load(f)
+		
+		dkim_config = config.get('dkim', {})
+		
+		if not dkim_config.get('enabled', False):
+			logger.info("DKIM signing disabled in config")
+			return {}
+		
+		signers = {}
+		
+		# Load multi-domain configuration
+		domains_config = dkim_config.get('domains', [])
+		for domain_conf in domains_config:
+			domain = domain_conf.get('domain')
+			selector = domain_conf.get('selector', 'default')
+			private_key = domain_conf.get('private_key', f'certs/dkim_{selector}.pem')
+			if domain:
+				signer = DKIMSigner(
+					domain=domain,
+					selector=selector,
+					private_key_path=private_key
+				)
+				if signer.private_key:
+					signers[domain] = signer
+					logger.info(f"DKIM signer loaded for {domain} (selector: {selector})")
+				else:
+					logger.warning(f"DKIM key not found for {domain}")
+		
+		# Single domain fallback
+		if not signers:
+			domain = dkim_config.get('domain')
+			selector = dkim_config.get('selector', 'default')
+			private_key = dkim_config.get('private_key', f'certs/dkim_{selector}.pem')
+			if domain:
+				signer = DKIMSigner(domain=domain, selector=selector, private_key_path=private_key)
+				if signer.private_key:
+					signers[domain] = signer
+		
+		return signers
+		
+	except Exception as e:
+		logger.error(f"Error loading multi-domain DKIM config: {e}")
+		return {}
