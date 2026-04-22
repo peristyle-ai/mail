@@ -232,14 +232,20 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 
 ### Email Storage
 - Emails have `sender_id` (actual sender) and `recipient_id` (recipient user)
-- API returns `sender_email` and `recipient_email` (joined from users table)
+- API returns `sender` and `recipient` as objects `{email, name}` (not flat fields)
 - HTML emails have `body_html` field (mapped to `html` in API)
 - Raw MIME content stored in `raw_email` column
 
-### Sender/Recipient Bug
-- CRITICAL: When storing received emails, use `recipient_id` for folder assignment, NOT `sender_id`
-- The emails list/get/delete endpoints filter by `recipient_id`, not `sender_id`
-- This was a bug that caused received emails to not be properly associated
+### Email Access Control
+- Email visibility is based on **folder ownership**: `JOIN folders f ON e.folder_id = f.id WHERE f.user_id = current_user_id`
+- Users can only see/access emails in folders they own
+- Local delivery creates separate copies: one in sender's Sent folder, one in recipient's Inbox
+- All email endpoints (list, get, delete, move, star, mark read) use folder ownership for authorization
+
+### Required Environment Variables
+- `HOST`: Required. The IP address to bind to (e.g., `192.168.4.41`). Server fails to start without it.
+- `DATABASE_URL`: PostgreSQL connection string
+- `JWT_SECRET`: Secret key for JWT tokens
 
 ### Blocklist Features
 - **IP Blacklist**: `/api/blacklist/ip/*` - block by IP address

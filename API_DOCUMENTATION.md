@@ -6,10 +6,10 @@ REST API for email management with JWT authentication. Supports both inbound ema
 
 ## Server Details
 
-- **Base URL**: `http://localhost:5003`
+- **Base URL**: `http://192.168.4.41:5003`
 - **API Port**: 5003
 - **SMTP Port**: 2525 (for internal use)
-- **Swagger UI**: `http://localhost:5003/docs`
+- **Swagger UI**: `http://192.168.4.41:5003/docs`
 - **Domain**: example.com.au
 - **Status**: All 140 tests passing, Gmail delivery working
 
@@ -26,7 +26,7 @@ Authorization: Bearer <token>
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/auth/login \
+curl -X POST http://192.168.4.41:5003/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "the operator@example.com.au",
@@ -98,7 +98,7 @@ Authorization: Bearer <token>
 #### List Emails
 **Endpoint**: `GET /api/emails`
 
-Returns all emails for authenticated user. For outbound emails, check the Sent folder.
+Returns all emails in the authenticated user's folders (based on folder ownership). Each user only sees emails in their own folders.
 
 #### Get Email
 **Endpoint**: `GET /api/emails/<id>`
@@ -110,7 +110,7 @@ Get a specific email by ID.
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/api/emails \
+curl -X POST http://192.168.4.41:5003/api/emails \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -141,7 +141,7 @@ Send emails with embedded images using raw MIME multipart format. Perfect for se
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/api/emails/mime \
+curl -X POST http://192.168.4.41:5003/api/emails/mime \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -202,7 +202,7 @@ with open('chart.png', 'rb') as f:
 
 # Send via API
 response = requests.post(
-    'http://localhost:5003/api/emails/mime',
+    'http://192.168.4.41:5003/api/emails/mime',
     headers={'Authorization': f'Bearer {token}'},
     json={
         'to': 'recipient@example.com',
@@ -261,7 +261,7 @@ Check the delivery status of an outbound email.
 
 **Request**:
 ```bash
-curl http://localhost:5003/api/emails/123/delivery-status \
+curl http://192.168.4.41:5003/api/emails/123/delivery-status \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -382,7 +382,7 @@ Query Parameters:
 
 **Example**:
 ```bash
-curl http://localhost:5003/api/blacklist/ip \
+curl http://192.168.4.41:5003/api/blacklist/ip \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -411,7 +411,7 @@ curl http://localhost:5003/api/blacklist/ip \
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/api/blacklist/ip \
+curl -X POST http://192.168.4.41:5003/api/blacklist/ip \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -446,7 +446,7 @@ curl -X POST http://localhost:5003/api/blacklist/ip \
 
 **Example**:
 ```bash
-curl -X DELETE http://localhost:5003/api/blacklist/ip/1 \
+curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/1 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -463,7 +463,7 @@ curl -X DELETE http://localhost:5003/api/blacklist/ip/1 \
 
 **Example**:
 ```bash
-curl -X DELETE http://localhost:5003/api/blacklist/ip/address/192.168.1.100 \
+curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/address/192.168.1.100 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -472,7 +472,7 @@ curl -X DELETE http://localhost:5003/api/blacklist/ip/address/192.168.1.100 \
 
 **Example**:
 ```bash
-curl http://localhost:5003/api/blacklist/ip/check/192.168.1.100 \
+curl http://192.168.4.41:5003/api/blacklist/ip/check/192.168.1.100 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -507,7 +507,7 @@ curl http://localhost:5003/api/blacklist/ip/check/192.168.1.100 \
 
 **Example**:
 ```bash
-curl http://localhost:5003/api/blacklist/stats \
+curl http://192.168.4.41:5003/api/blacklist/stats \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -558,7 +558,7 @@ Check server status. No authentication required.
 import requests
 import time
 
-BASE_URL = "http://localhost:5003"
+BASE_URL = "http://192.168.4.41:5003"
 EMAIL = "the operator@example.com.au"
 PASSWORD = "password123"
 
@@ -712,7 +712,7 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 ## Important Notes
 
 1. **Port**: API runs on port 5003 (NOT 5001)
-2. **Swagger UI**: Available at `http://localhost:5003/docs`
+2. **Swagger UI**: Available at `http://192.168.4.41:5003/docs`
 3. **Authorized User**: the operator@example.com.au (ID 268)
 4. **Test Recipient**: payroll@example.com
 5. **Delivery Time**: 30-60 seconds for Gmail

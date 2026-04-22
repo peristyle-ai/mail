@@ -29,7 +29,7 @@ This guide provides all the information needed to integrate with the example.com
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/auth/login \
+curl -X POST http://192.168.4.41:5003/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "the operator@example.com.au",
@@ -67,7 +67,7 @@ Authorization: Bearer <token>
 
 **Request**:
 ```bash
-curl -X POST http://localhost:5003/api/emails \
+curl -X POST http://192.168.4.41:5003/api/emails \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -98,7 +98,7 @@ curl -X POST http://localhost:5003/api/emails \
 
 **Request**:
 ```bash
-curl http://localhost:5003/api/emails/123/delivery-status \
+curl http://192.168.4.41:5003/api/emails/123/delivery-status \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -190,7 +190,7 @@ def send_email_with_image(image_path, html_content, to_address):
     
     # Send via API - use mime_content = msg.as_string()
     response = requests.post(
-        'http://localhost:5003/api/emails/mime',
+        'http://192.168.4.41:5003/api/emails/mime',
         headers={
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json'
@@ -358,7 +358,7 @@ def check_delivery_status(email_id):
 
 **Request**:
 ```bash
-curl http://localhost:5003/api/emails \
+curl http://192.168.4.41:5003/api/emails \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -369,10 +369,8 @@ curl http://localhost:5003/api/emails \
   "subject": "The Microsoft-OpenAI Divorce Is Official",
   "body": "Plain text version...",
   "html": "<!DOCTYPE html><html><body>HTML version...</body></html>",
-  "sender_id": 277,
-  "sender_email": "noreply@medium.com",
-  "recipient_id": 268,
-  "recipient_email": "the operator@example.com.au",
+  "sender": {"email": "noreply@medium.com", "name": null},
+  "recipient": {"email": "the operator@example.com.au", "name": null},
   "folder_id": 49,
   "is_read": false,
   "is_starred": false,
@@ -380,15 +378,17 @@ curl http://localhost:5003/api/emails \
 }
 ```
 
+**Note**: Email visibility is based on folder ownership. Users can only see/access emails in folders they own (`WHERE f.user_id = current_user_id`).
+
 **Get Single Email**:
 ```bash
-curl http://localhost:5003/api/emails/760 \
+curl http://192.168.4.41:5003/api/emails/760 \
   -H "Authorization: Bearer <token>"
 ```
 
 **Search Emails**:
 ```bash
-curl "http://localhost:5003/api/search?q=keyword&folder_id=1&flag=unread" \
+curl "http://192.168.4.41:5003/api/search?q=keyword&folder_id=1&flag=unread" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -396,11 +396,11 @@ curl "http://localhost:5003/api/search?q=keyword&folder_id=1&flag=unread" \
 
 **Endpoint**: `DELETE /api/emails/{id}`
 
-**Description**: Delete a received email. Users can only delete emails where they are the recipient.
+**Description**: Delete an email. Users can only delete emails in their own folders.
 
 **Request**:
 ```bash
-curl -X DELETE http://localhost:5003/api/emails/760 \
+curl -X DELETE http://192.168.4.41:5003/api/emails/760 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -411,7 +411,7 @@ curl -X DELETE http://localhost:5003/api/emails/760 \
 }
 ```
 
-**Note**: Users can only delete emails they received (where they are the recipient). Sent emails cannot be deleted via this endpoint.
+**Note**: Users can only delete emails in folders they own (based on folder ownership).
 
 ### Other Useful Endpoints
 
@@ -533,7 +533,7 @@ Authorization: Bearer <token>
 
 **Check if Sender is Blocked**:
 ```bash
-curl "http://localhost:5003/api/blacklist/sender/check?email=test@spamdomain.com" \
+curl "http://192.168.4.41:5003/api/blacklist/sender/check?email=test@spamdomain.com" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -560,7 +560,7 @@ curl "http://localhost:5003/api/blacklist/sender/check?email=test@spamdomain.com
 ```python
 import requests
 
-BASE_URL = "http://localhost:5003"
+BASE_URL = "http://192.168.4.41:5003"
 EMAIL = "the operator@example.com.au"
 PASSWORD = "password123"
 RECIPIENT = "payroll@example.com"
@@ -828,12 +828,12 @@ UPDATE users SET is_local = FALSE WHERE email = 'payroll@example.com';
 
 ### Quick Health Check
 ```bash
-curl http://localhost:5003/health
+curl http://192.168.4.41:5003/health
 ```
 
 ### Quick Login Test
 ```bash
-curl -X POST http://localhost:5003/auth/login \
+curl -X POST http://192.168.4.41:5003/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "the operator@example.com.au", "password": "password123"}'
 ```
@@ -841,12 +841,12 @@ curl -X POST http://localhost:5003/auth/login \
 ### Send Quick Test Email
 ```bash
 # Get token
-TOKEN=$(curl -s -X POST http://localhost:5003/auth/login \
+TOKEN=$(curl -s -X POST http://192.168.4.41:5003/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "the operator@example.com.au", "password": "password123"}' | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 # Send email
-curl -X POST http://localhost:5003/api/emails \
+curl -X POST http://192.168.4.41:5003/api/emails \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to": "payroll@example.com", "subject": "Quick Test", "body": "Test body"}'
@@ -868,7 +868,7 @@ curl -X POST http://localhost:5003/api/emails \
 8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
 9. **HTML Emails**: Received emails include `html` field for HTML content
 10. **Raw Email Storage**: New emails store raw MIME content for future extraction
-11. **Email Addresses**: Use `sender_email` and `recipient_email` in API responses (joined from users table)
+11. **Email Addresses**: API returns `sender` and `recipient` as objects `{email, name}` instead of flat fields
 12. **is_local Column**: Users table has `is_local` boolean - TRUE for local users, FALSE for external senders
 13. **Server Host**: Must set HOST in .env file (e.g., HOST=192.168.4.41)
 
@@ -902,7 +902,7 @@ If issues persist:
 - Sender Blocklist API endpoints (`/api/blacklist/sender/*`) - block emails/domains at SMTP level
 - HTML email body in received emails (`html` field in API responses)
 - Raw email storage for future extraction (`raw_email` field)
-- Sender/recipient email addresses in API (`sender_email`, `recipient_email` fields)
+- Sender/recipient as objects in API (`sender` and `recipient` fields with `{email, name}`)
 - is_local column for users - distinguishes local vs external users
 - recipient_id properly set on sent emails
 - outbound queue properly populated for external recipients
