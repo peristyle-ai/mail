@@ -20,7 +20,7 @@ from .mx_lookup import MXLookup
 from .delivery import OutboundSMTPSender
 from .storage import log_delivery_attempt
 from .rate_limiter import OutboundRateLimiter
-from .dkim_signer import load_dkim_config
+from .dkim_signer import load_dkim_config, load_multi_domain_dkim
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +45,11 @@ class OutboundQueueProcessor:
 		self.sender = OutboundSMTPSender()
 		self.rate_limiter = OutboundRateLimiter()
 		self.dkim_signer = load_dkim_config()
-		
-		if self.dkim_signer:
-			logger.info("DKIM signing enabled")
+		self.dkim_signers = load_multi_domain_dkim()
+		if self.dkim_signers:
+			logger.info(f"DKIM signing enabled for domains: {list(self.dkim_signers.keys())}")
+		elif self.dkim_signer:
+			logger.info(f"DKIM signing enabled for domain: {self.dkim_signer.domain}")
 		else:
 			logger.warning("DKIM signing not configured")
 		
@@ -310,10 +312,17 @@ class OutboundQueueProcessor:
 							if header_lower not in skip_headers and not header_lower.startswith('content-'):
 								msg[key.strip()] = value.strip()
 			
-			# Sign with DKIM if configured
-			if self.dkim_signer:
-				msg = self.dkim_signer.sign_email(msg)
-				logger.debug(f"DKIM signed email for {recipient}")
+			# Sign with DKIM if configured (multi-domain aware)
+			signing_domain = from_address.split('@')[-1] if '@' in from_address else None
+			dkim_signer = None
+			if signing_domain and signing_domain in self.dkim_signers:
+				dkim_signer = self.dkim_signers[signing_domain]
+			elif self.dkim_signer:
+				dkim_signer = self.dkim_signer
+			
+			if dkim_signer:
+				msg = dkim_signer.sign_email(msg)
+				logger.debug(f"DKIM signed email for {recipient} using domain {dkim_signer.domain}")
 			
 			# Record rate limit
 			self.rate_limiter.record_send(domain)

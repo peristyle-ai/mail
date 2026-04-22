@@ -165,4 +165,12 @@ CREATE INDEX idx_outbound_status ON outbound_queue(status);
 CREATE INDEX idx_outbound_next_attempt ON outbound_queue(next_attempt);
 CREATE INDEX idx_outbound_domain ON outbound_queue(recipient_domain);
 CREATE INDEX idx_delivery_logs_email ON delivery_logs(email_id);
+
+-- Major email provider domains (greylist whitelist)
+CREATE TABLE major_providers (
+	id SERIAL PRIMARY KEY,
+	domain VARCHAR(255) UNIQUE NOT NULL,
+	description VARCHAR(255),
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 CREATE INDEX idx_delivery_logs_queue ON delivery_logs(outbound_queue_id);

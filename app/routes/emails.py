@@ -519,7 +519,7 @@ def mark_as_read(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET is_read = TRUE WHERE id = %s AND sender_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('UPDATE emails SET is_read = TRUE WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -556,12 +556,12 @@ def toggle_starred(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT is_starred FROM emails WHERE id = %s AND sender_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('SELECT is_starred FROM emails WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
 	email = cursor.fetchone()
 	if not email:
 		return jsonify({'error': 'Email not found'}), 404
 	new_state = not email['is_starred']
-	cursor.execute('UPDATE emails SET is_starred = %s WHERE id = %s AND sender_id = %s', (new_state, email_id, request.current_user['id']))
+	cursor.execute('UPDATE emails SET is_starred = %s WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (new_state, email_id, request.current_user['id'], request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -596,7 +596,7 @@ def delete_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('DELETE FROM emails WHERE id = %s AND recipient_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('DELETE FROM emails WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (email_id, request.current_user['id'], request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -642,7 +642,7 @@ def move_email(email_id):
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET folder_id = %s WHERE id = %s AND sender_id = %s', (data['folder_id'], email_id, request.current_user['id']))
+	cursor.execute('UPDATE emails SET folder_id = %s WHERE id = %s AND (sender_id = %s OR recipient_id = %s)', (data['folder_id'], email_id, request.current_user['id'], request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
