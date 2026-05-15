@@ -49,7 +49,7 @@ CREATE TABLE attachments (
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
 	file_name VARCHAR(255) NOT NULL,
 	content_type VARCHAR(255),
-	file_data BYTEA,
+	file_path VARCHAR(500),
 	file_size BIGINT,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

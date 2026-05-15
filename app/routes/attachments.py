@@ -1,13 +1,17 @@
 import os
 import uuid
+import logging
 from flask import Blueprint, request, jsonify, send_file
 from app.utils.auth import token_required
 from ..db import get_db_connection
 
 bp = Blueprint('attachments', __name__)
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'zip'}
 MAX_FILE_SIZE = 10 * 1024 * 1024
+
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
 
 def allowed_file(filename):
 	return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -73,31 +77,29 @@ def upload_attachment(email_id):
 	if file.content_length and file.content_length > MAX_FILE_SIZE:
 		return jsonify({'error': 'File too large (max 10MB)'}), 413
 	
-	# Verify user owns the email before allowing upload
+	# Verify user owns the email (via folder ownership)
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT sender_id FROM emails WHERE id = %s', (email_id,))
+	cursor.execute(
+		'SELECT e.id FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		(email_id, request.current_user['id'])
+	)
 	email = cursor.fetchone()
-	cursor.close()
-	conn.close()
 	
 	if not email:
-		return jsonify({'error': 'Email not found'}), 404
-	
-	if email['sender_id'] != request.current_user['id']:
-		return jsonify({'error': 'Unauthorized'}), 403
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Email not found or unauthorized'}), 404
 	
 	unique_filename = get_unique_filename(file.filename)
-	file_path = f"uploads/{unique_filename}"
-	os.makedirs('uploads', exist_ok=True)
+	os.makedirs(UPLOADS_DIR, exist_ok=True)
+	file_path = os.path.join(UPLOADS_DIR, unique_filename)
 	file.save(file_path)
-	
-	conn = get_db_connection()
-	cursor = conn.cursor()
+	file_size = os.path.getsize(file_path)
 	
 	cursor.execute(
-		'INSERT INTO attachments (email_id, user_id, filename, content_type, file_path, file_size) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-		(email_id, request.current_user['id'], file.filename, file.content_type, file_path, file.content_length if file.content_length else 0)
+		'INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+		(email_id, file.filename, file.content_type, file_size, file_path)
 	)
 	
 	attachment_id = cursor.fetchone()['id']
@@ -133,7 +135,7 @@ def list_attachments(email_id):
 	        properties:
 	          id:
 	            type: integer
-	          filename:
+	          file_name:
 	            type: string
 	          content_type:
 	            type: string
@@ -142,23 +144,21 @@ def list_attachments(email_id):
 	  401:
 	    description: Unauthorized
 	"""
-	# Verify user owns the email before listing attachments
+	# Verify user owns the email (via folder ownership)
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT sender_id FROM emails WHERE id = %s', (email_id,))
+	cursor.execute(
+		'SELECT e.id FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		(email_id, request.current_user['id'])
+	)
 	email = cursor.fetchone()
 	
 	if not email:
 		cursor.close()
 		conn.close()
-		return jsonify({'error': 'Email not found'}), 404
+		return jsonify({'error': 'Email not found or unauthorized'}), 404
 	
-	if email['sender_id'] != request.current_user['id']:
-		cursor.close()
-		conn.close()
-		return jsonify({'error': 'Unauthorized'}), 403
-	
-	cursor.execute('SELECT * FROM attachments WHERE email_id = %s', (email_id,))
+	cursor.execute('SELECT id, email_id, file_name, content_type, file_size FROM attachments WHERE email_id = %s', (email_id,))
 	attachments = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -199,15 +199,26 @@ def download_attachment(attachment_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	cursor.execute('SELECT file_path FROM attachments WHERE id = %s AND user_id = %s', (attachment_id, request.current_user['id']))
+	cursor.execute(
+		'''SELECT a.file_path, a.file_name FROM attachments a
+		   JOIN emails e ON a.email_id = e.id
+		   JOIN folders f ON e.folder_id = f.id
+		   WHERE a.id = %s AND f.user_id = %s''',
+		(attachment_id, request.current_user['id'])
+	)
 	attachment = cursor.fetchone()
 	cursor.close()
 	conn.close()
 	
-	if not attachment or not os.path.exists(str(attachment['file_path'])):
+	if not attachment:
 		return jsonify({'error': 'Attachment not found'}), 404
 	
-	return send_file(str(attachment['file_path']), as_attachment=True)
+	file_path = attachment['file_path']
+	if not file_path or not os.path.exists(file_path):
+		# Attachment exists in MIME raw_email but not on filesystem
+		return jsonify({'error': 'Attachment data not available on filesystem'}), 404
+	
+	return send_file(file_path, as_attachment=True, download_name=attachment['file_name'])
 
 @bp.route('/api/attachments/<int:attachment_id>', methods=['DELETE'])
 @token_required
@@ -241,14 +252,22 @@ def delete_attachment_route(attachment_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	cursor.execute('SELECT file_path FROM attachments WHERE id = %s AND user_id = %s', (attachment_id, request.current_user['id']))
+	cursor.execute(
+		'''SELECT a.file_path FROM attachments a
+		   JOIN emails e ON a.email_id = e.id
+		   JOIN folders f ON e.folder_id = f.id
+		   WHERE a.id = %s AND f.user_id = %s''',
+		(attachment_id, request.current_user['id'])
+	)
 	attachment = cursor.fetchone()
 	
 	if not attachment:
+		cursor.close()
+		conn.close()
 		return jsonify({'error': 'Attachment not found'}), 404
 	
-	file_path = str(attachment['file_path'])
-	if os.path.exists(file_path):
+	file_path = attachment['file_path']
+	if file_path and os.path.exists(file_path):
 		os.remove(file_path)
 	
 	cursor.execute('DELETE FROM attachments WHERE id = %s', (attachment_id,))
