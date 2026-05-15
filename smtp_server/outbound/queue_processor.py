@@ -304,7 +304,7 @@ class OutboundQueueProcessor:
 				
 				# Add original headers (skip content-related and address headers)
 				if email_row['headers']:
-					skip_headers = {'from', 'to', 'subject', 'message-id', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
+					skip_headers = {'from', 'to', 'subject', 'message-id', 'date', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
 					for line in email_row['headers'].split('\n'):
 						if ':' in line:
 							key, value = line.split(':', 1)
