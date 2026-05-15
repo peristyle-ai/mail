@@ -96,59 +96,61 @@ def extract_subject(msg: EmailMessage) -> str:
 
 
 def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
-    """Extract and save attachments from email message."""
+    """Extract and save attachments from email message.
+
+    Uses savepoints so that attachment failures do not roll back
+    the enclosing email transaction.
+    """
     if not msg.is_multipart():
         return
-    
+
     attachment_count = 0
     for part in msg.walk():
         # Skip the message body parts
         content_disposition = part.get('Content-Disposition', '')
         if 'attachment' not in content_disposition:
             continue
-        
+
         # Get attachment filename
         filename = part.get_filename()
         if not filename:
             filename = f"attachment_{uuid.uuid4().hex[:8]}.bin"
-        
+
         # Get content type
         content_type = part.get_content_type()
-        
+
         # Get attachment data
         try:
             data = part.get_payload(decode=True)
             if not data:
                 continue
-            
+
             file_size = len(data)
-            
-            # Save to database - schema uses filename (no underscore), file_path
-            unique_filename = f"{uuid.uuid4().hex}_{filename}"
-            file_path = os.path.join(UPLOADS_DIR, unique_filename)
-            
-            # Save to filesystem
-            with open(file_path, 'wb') as f:
-                f.write(data)
-            
-            # Save metadata to database
-            cursor.execute(
-                '''INSERT INTO attachments 
-                   (email_id, user_id, filename, content_type, file_path, file_size) 
-                   VALUES (%s, %s, %s, %s, %s, %s)''',
-                (email_id, user_id, filename, content_type, file_path, file_size)
-            )
-            
+
+            # Use a savepoint so a bad INSERT does not poison the transaction
+            cursor.execute('SAVEPOINT att_save')
+            try:
+                cursor.execute(
+                    '''INSERT INTO attachments
+                       (email_id, file_name, content_type, file_size)
+                       VALUES (%s, %s, %s, %s)''',
+                    (email_id, filename, content_type, file_size)
+                )
+                cursor.execute('RELEASE SAVEPOINT att_save')
+            except Exception:
+                cursor.execute('ROLLBACK TO SAVEPOINT att_save')
+                raise
+
             attachment_count += 1
             logger.info(f"Saved attachment: {filename} ({file_size} bytes)")
-            
+
         except Exception as e:
             logger.error(f"Error saving attachment {filename}: {e}")
             continue
-    
+
     if attachment_count > 0:
         logger.info(f"Saved {attachment_count} attachment(s) for email {email_id}")
-    
+
     return attachment_count
 
 
