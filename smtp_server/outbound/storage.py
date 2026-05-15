@@ -75,10 +75,15 @@ def queue_outbound_email(
 	Returns:
 		Tuple of (email_id, list_of_queue_ids)
 	"""
+	from smtp_server.email_storage import extract_bodies
+
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
 	try:
+		# Extract HTML body from message
+		_, body_html = extract_bodies(message)
+		
 		# Get Sent folder
 		sent_folder_id = get_or_create_sent_folder(sender_id)
 		
@@ -91,6 +96,15 @@ def queue_outbound_email(
 		# Add message headers
 		for key, value in message.items():
 			headers_str += f"{key}: {value}\n"
+		
+		# Store raw email content
+		raw_email_str = ''
+		if message:
+			try:
+				raw_bytes = message.as_bytes()
+				raw_email_str = raw_bytes.decode('utf-8', errors='replace')
+			except Exception:
+				pass
 		
 		# First pass: identify local vs external recipients
 		queue_ids = []
@@ -116,10 +130,10 @@ def queue_outbound_email(
 		# Store in emails table (in Sent folder) with recipient_id
 		cursor.execute(
 			'''INSERT INTO emails 
-			   (sender_id, recipient_id, folder_id, subject, body, headers, created_at, is_read)
-			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+			   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 			   RETURNING id''',
-			(sender_id, recipient_id, sent_folder_id, subject, body, headers_str, 
+			(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str, 
 			 datetime.now(timezone.utc), True)  # Mark as read since user sent it
 		)
 		email_id = cursor.fetchone()['id']
@@ -147,6 +161,10 @@ def queue_outbound_email(
 		
 		# Handle local recipients
 		for to_address, recipient_id in local_recipients:
+			# Skip creating Inbox copy when sender is the same as recipient
+			if recipient_id == sender_id:
+				continue
+
 			# Get recipient's inbox
 			cursor.execute(
 				'SELECT id FROM folders WHERE user_id = %s AND name = %s',
@@ -154,26 +172,32 @@ def queue_outbound_email(
 			)
 			inbox = cursor.fetchone()
 			
-			if inbox:
-				# Copy email to recipient's inbox
+			if not inbox:
 				cursor.execute(
-					'''INSERT INTO emails 
-					   (sender_id, recipient_id, folder_id, subject, body, headers, created_at, is_read)
-					   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-					   RETURNING id''',
-					(sender_id, recipient_id, inbox['id'], subject, body, headers_str,
-					 datetime.now(timezone.utc), False)
+					'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+					(recipient_id, 'Inbox')
 				)
-				recipient_email_id = cursor.fetchone()['id']
-				
-				# Add recipient entry
-				cursor.execute(
-					'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
-					   VALUES (%s, %s, %s)''',
-					(recipient_email_id, recipient_id, 'to')
-				)
-				
-				logger.info(f"Stored local copy of email {email_id} for {to_address}")
+				inbox = cursor.fetchone()
+
+			# Copy email to recipient's inbox
+			cursor.execute(
+				'''INSERT INTO emails 
+				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
+				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+				   RETURNING id''',
+				(sender_id, recipient_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
+				 datetime.now(timezone.utc), False)
+			)
+			recipient_email_id = cursor.fetchone()['id']
+			
+			# Add recipient entry
+			cursor.execute(
+				'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
+				   VALUES (%s, %s, %s)''',
+				(recipient_email_id, recipient_id, 'to')
+			)
+			
+			logger.info(f"Stored local copy of email {email_id} for {to_address}")
 		
 		# Add sender as recipient for the sent email
 		cursor.execute(

@@ -23,6 +23,10 @@ def format_email_response(email_dict):
 	recipient_email = result.pop('recipient_email', None)
 	if recipient_email:
 		result['recipient'] = {'email': recipient_email, 'name': None}
+	# Include folder name in response
+	folder_name = result.pop('folder_name', None)
+	if folder_name:
+		result['folder'] = folder_name
 	return result
 
 
@@ -63,19 +67,35 @@ def list_emails():
 	  401:
 	    description: Unauthorized - invalid or missing token
 	"""
+	folder_name = request.args.get('folder')
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('''
-		SELECT e.*, 
-		       s.email as sender_email, 
-		       r.email as recipient_email
-		FROM emails e
-		LEFT JOIN users s ON e.sender_id = s.id
-		LEFT JOIN users r ON e.recipient_id = r.id
-		JOIN folders f ON e.folder_id = f.id
-		WHERE f.user_id = %s
-		ORDER BY e.created_at DESC
-	''', (request.current_user['id'],))
+	if folder_name:
+		cursor.execute('''
+			SELECT e.*, 
+			       s.email as sender_email, 
+			       r.email as recipient_email,
+			       f.name as folder_name
+			FROM emails e
+			LEFT JOIN users s ON e.sender_id = s.id
+			LEFT JOIN users r ON e.recipient_id = r.id
+			JOIN folders f ON e.folder_id = f.id
+			WHERE f.user_id = %s AND f.name = %s
+			ORDER BY e.created_at DESC
+		''', (request.current_user['id'], folder_name))
+	else:
+		cursor.execute('''
+			SELECT e.*, 
+			       s.email as sender_email, 
+			       r.email as recipient_email,
+			       f.name as folder_name
+			FROM emails e
+			LEFT JOIN users s ON e.sender_id = s.id
+			LEFT JOIN users r ON e.recipient_id = r.id
+			JOIN folders f ON e.folder_id = f.id
+			WHERE f.user_id = %s
+			ORDER BY e.created_at DESC
+		''', (request.current_user['id'],))
 	emails = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -112,7 +132,8 @@ def get_email(email_id):
 	cursor.execute('''
 		SELECT e.*, 
 		       s.email as sender_email, 
-		       r.email as recipient_email
+		       r.email as recipient_email,
+		       f.name as folder_name
 		FROM emails e
 		LEFT JOIN users s ON e.sender_id = s.id
 		LEFT JOIN users r ON e.recipient_id = r.id
@@ -254,6 +275,10 @@ def create_email():
 	
 	# Add local recipients and create copies in their inboxes
 	for recipient_email, recipient_id in local_recipients:
+		# Skip creating Inbox copy when sender is the same as recipient
+		if recipient_id == request.current_user['id']:
+			continue
+
 		cursor.execute(
 			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')

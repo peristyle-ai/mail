@@ -13,10 +13,17 @@ This guide provides all the information needed to integrate with the example.com
 - **API Port**: 5003
 - **SMTP Port**: 2525 (for internal use)
 - **Host IP**: 192.168.4.41 (set in .env HOST variable)
-- **Domain**: example.com.au
+- **Domain**: example.com.au, example.ai, example.ai, mailrelay.com (multi-domain)
 - **Authorized Users**: 
   - the operator@example.com.au (not-a-real-password)
   - clawbie@example.com.au (not-a-real-password)
+  - support@example.ai
+  - the operator@example.ai
+  - evie@example.ai
+  - support@example.ai
+  - the customer@example.com
+  - customer@example.com
+  - customer@example.com
 - **Test Recipient**: payroll@example.com
 
 ---
@@ -354,11 +361,23 @@ def check_delivery_status(email_id):
 
 **Endpoint**: `GET /api/emails`
 
-**Description**: List all received emails for the authenticated user. Each email includes sender/recipient email addresses and optional HTML body.
+**Description**: List all emails for the authenticated user. Each email includes sender/recipient email addresses, optional HTML body, and folder name.
 
-**Request**:
+**Query Parameters**:
+- `folder` (optional): Filter by folder name (e.g., `Inbox`, `Sent`)
+
+**Examples**:
 ```bash
+# Get all emails across all folders
 curl http://192.168.4.41:5003/api/emails \
+  -H "Authorization: Bearer <token>"
+
+# Get only inbox emails
+curl "http://192.168.4.41:5003/api/emails?folder=Inbox" \
+  -H "Authorization: Bearer <token>"
+
+# Get only sent emails
+curl "http://192.168.4.41:5003/api/emails?folder=Sent" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -371,6 +390,7 @@ curl http://192.168.4.41:5003/api/emails \
   "html": "<!DOCTYPE html><html><body>HTML version...</body></html>",
   "sender": {"email": "noreply@medium.com", "name": null},
   "recipient": {"email": "the operator@example.com.au", "name": null},
+  "folder": "Inbox",
   "folder_id": 49,
   "is_read": false,
   "is_starred": false,
@@ -378,9 +398,12 @@ curl http://192.168.4.41:5003/api/emails \
 }
 ```
 
-**Note**: Email visibility is based on folder ownership. Users can only see/access emails in folders they own (`WHERE f.user_id = current_user_id`).
+**Notes**:
+- Email visibility is based on folder ownership. Users can only see/access emails in folders they own.
+- The `folder` field indicates which folder the email belongs to (`Inbox`, `Sent`, etc.).
+- When a user sends an email to themselves (sender = recipient), only one copy is created in the Sent folder (no duplicate in Inbox).
 
-**Get Single Email**:
+**Get Single Email** (includes folder name):
 ```bash
 curl http://192.168.4.41:5003/api/emails/760 \
   -H "Authorization: Bearer <token>"
@@ -861,7 +884,7 @@ curl -X POST http://192.168.4.41:5003/api/emails \
    - clawbie@example.com.au is ID 356
 2. **Test Recipient**: Always use payroll@example.com for testing
 3. **Delivery Time**: Expect 30-60 seconds for delivery to Gmail
-4. **Rate Limiting**: 30 emails/min per domain, 100/hour total
+4. **Rate Limiting**: 50 connections per domain, 100/hour total
 5. **Queue**: Emails are processed every 30 seconds
 6. **Authentication**: All API endpoints (except /health) require Bearer token
 7. **IP Blacklist**: Use `/api/blacklist/ip/*` endpoints to manage blocked IPs
@@ -871,6 +894,10 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 11. **Email Addresses**: API returns `sender` and `recipient` as objects `{email, name}` instead of flat fields
 12. **is_local Column**: Users table has `is_local` boolean - TRUE for local users, FALSE for external senders
 13. **Server Host**: Must set HOST in .env file (e.g., HOST=192.168.4.41)
+14. **Folder Filtering**: Use `GET /api/emails?folder=Inbox` to filter by folder; responses include `folder` field
+15. **Self-Email**: When sender=recipient, only Sent copy is created (no duplicate Inbox copy)
+16. **Multi-Domain DKIM**: Each domain has its own DKIM selector (default, fencemate, protophys)
+17. **Auto Inbox Creation**: Inbox folder is auto-created for local recipients who don't have one
 
 ---
 
@@ -894,8 +921,8 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-03-19 (12:15 AEST)
-**Status**: All tests passing, email delivery to Gmail working
+**Last Updated**: 2026-05-15
+**Status**: 146 tests passing, multi-domain email delivery working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
 - IP Blacklist API endpoints (`/api/blacklist/ip/*`)
@@ -907,3 +934,10 @@ If issues persist:
 - recipient_id properly set on sent emails
 - outbound queue properly populated for external recipients
 - Attachment listing works for MIME emails (`/api/emails/{id}/attachments`)
+- Folder filtering on email list (`GET /api/emails?folder=Inbox`)
+- Folder name in email responses (`folder` field)
+- Self-email deduplication (no Inbox copy when sender=recipient)
+- Auto Inbox folder creation for new local recipients
+- Multi-domain DKIM signing (example.com.au, example.ai, example.ai, mailrelay.com)
+- Major provider greylist whitelist stored in PostgreSQL
+- SMTP rate limit: 50 connections per domain

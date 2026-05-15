@@ -119,4 +119,4 @@ def login():
 
 	token = generate_jwt(user['id'])
 
-	return jsonify({'token': token, 'user': {'id': user['id'], 'email': user['email']}})
+	return jsonify({'token': token, 'user': {'id': user['id'], 'email': user['email'], 'timezone': user.get('timezone', 'Australia/Sydney')}})
