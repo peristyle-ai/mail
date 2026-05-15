@@ -47,10 +47,9 @@ CREATE TABLE email_recipients (
 CREATE TABLE attachments (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
-	user_id INTEGER NOT NULL REFERENCES users(id),
-	filename VARCHAR(255) NOT NULL,
+	file_name VARCHAR(255) NOT NULL,
 	content_type VARCHAR(255),
-	file_path VARCHAR(500),
+	file_data BYTEA,
 	file_size BIGINT,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
