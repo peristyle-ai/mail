@@ -322,6 +322,8 @@ attachments = response.json()
 # Returns: [{'id': 6, 'file_name': 'test_document.pdf', 'content_type': 'application/pdf', 'file_size': 44, ...}]
 ```
 
+**Note**: Incoming SMTP attachments are stored as metadata only (no `file_path`). The actual file data is embedded in the email's `raw_email` field. Download is only available for files uploaded via the API attachment endpoint.
+
 **Response**: Same as regular send endpoint
 - `pending` - Email queued, waiting to be sent
 - `sending` - Currently attempting delivery
@@ -898,6 +900,8 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 15. **Self-Email**: When sender=recipient, only Sent copy is created (no duplicate Inbox copy)
 16. **Multi-Domain DKIM**: Each domain has its own DKIM selector (default, fencemate, protophys)
 17. **Auto Inbox Creation**: Inbox folder is auto-created for local recipients who don't have one
+18. **Attachments**: Incoming SMTP attachments stored as metadata only (file data in `raw_email`); API uploads saved to filesystem
+19. **Attachment Auth**: Folder-based authorization for all attachment endpoints (not sender_id)
 
 ---
 
@@ -941,3 +945,5 @@ If issues persist:
 - Multi-domain DKIM signing (example.com.au, example.ai, example.ai, mailrelay.com)
 - Major provider greylist whitelist stored in PostgreSQL
 - SMTP rate limit: 50 connections per domain
+- Attachment column fix: `file_name` and `file_path` (no `file_data`/`user_id`/`filename`)
+- Attachment savepoints: failed attachments don't roll back email storage

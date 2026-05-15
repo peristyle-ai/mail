@@ -369,16 +369,41 @@ Authorization: Bearer <token>
 #### Upload
 **Endpoint**: `POST /api/emails/<id>/attachments`
 
-Multipart form data with `file` field.
+Upload a file attachment to an email. Uses folder-based authorization — you must own the email's folder.
+
+**Request**: Multipart form data with `file` field.
+- Maximum file size: 10MB
+- Allowed types: txt, pdf, png, jpg, jpeg, gif, doc, docx, zip
 
 #### List Attachments
 **Endpoint**: `GET /api/emails/<id>/attachments`
 
+Returns attachment metadata for an email. Uses folder-based authorization.
+
+**Response**:
+```json
+[
+  {
+    "id": 5,
+    "email_id": 2464,
+    "file_name": "report.pdf",
+    "content_type": "application/pdf",
+    "file_size": 12345
+  }
+]
+```
+
+**Note**: Incoming SMTP attachments are extracted from raw MIME content and stored as metadata only (no `file_path`). The actual file data is embedded in the email's `raw_email` field.
+
 #### Download
 **Endpoint**: `GET /api/attachments/<id>`
 
+Download an attachment file. Only available for attachments with a filesystem path (uploaded via API). Returns 404 if the attachment only has metadata (from incoming MIME emails).
+
 #### Delete
 **Endpoint**: `DELETE /api/attachments/<id>`
+
+Delete an attachment and its file (if on filesystem). Uses folder-based authorization.
 
 ---
 
@@ -782,7 +807,7 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ## Changelog
 
-- **2026-05-15**: Added folder filter to `GET /api/emails?folder=Inbox`; added `folder` field to email responses; fixed self-email duplication (no Inbox copy when sender=recipient); fixed Inbox auto-creation for new recipients in outbound storage
+- **2026-05-15**: Added folder filter to `GET /api/emails?folder=Inbox`; added `folder` field to email responses; fixed self-email duplication (no Inbox copy when sender=recipient); fixed Inbox auto-creation for new recipients in outbound storage; fixed attachment column names (removed `file_data`, use `file_name`/`file_path`); attachment save errors no longer roll back email storage; folder-based authorization for attachment endpoints
 - **2026-02-17**: Added MIME email endpoint (`POST /api/emails/mime`) for embedded images
 - **2026-02-16**: Added IP blacklist API (`/api/blacklist/ip/*` endpoints)
 - **2026-02-16**: Added blacklist checker module for SMTP-level IP blocking
