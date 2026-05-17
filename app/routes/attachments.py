@@ -168,57 +168,69 @@ def list_attachments(email_id):
 @bp.route('/api/attachments/<int:attachment_id>', methods=['GET'])
 @token_required
 def download_attachment(attachment_id):
-	"""
-	Download an attachment
-	---
-	tags:
-	  - Attachments
-	security:
-	  - Bearer: []
-	parameters:
-	  - in: path
-	    name: attachment_id
-	    type: integer
-	    required: true
-	    description: Attachment ID
-	produces:
-	  - application/octet-stream
-	responses:
-	  200:
-	    description: File download
-	    content:
-	      application/octet-stream:
-	        schema:
-	          type: string
-	          format: binary
-	  404:
-	    description: Attachment not found
-	  401:
-	    description: Unauthorized
-	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
 	cursor.execute(
-		'''SELECT a.file_path, a.file_name FROM attachments a
+		'''SELECT a.id, a.file_path, a.file_name, a.content_type, a.email_id FROM attachments a
 		   JOIN emails e ON a.email_id = e.id
 		   JOIN folders f ON e.folder_id = f.id
 		   WHERE a.id = %s AND f.user_id = %s''',
 		(attachment_id, request.current_user['id'])
 	)
 	attachment = cursor.fetchone()
-	cursor.close()
-	conn.close()
 	
 	if not attachment:
+		cursor.close()
+		conn.close()
 		return jsonify({'error': 'Attachment not found'}), 404
 	
 	file_path = attachment['file_path']
-	if not file_path or not os.path.exists(file_path):
-		# Attachment exists in MIME raw_email but not on filesystem
-		return jsonify({'error': 'Attachment data not available on filesystem'}), 404
+	file_name = attachment['file_name']
+	content_type = attachment['content_type']
+	email_id = attachment['email_id']
 	
-	return send_file(file_path, as_attachment=True, download_name=attachment['file_name'])
+	if file_path and os.path.exists(file_path):
+		cursor.close()
+		conn.close()
+		return send_file(file_path, as_attachment=True, download_name=file_name)
+	
+	# Legacy: extract attachment from raw_email if file_path is missing
+	cursor.execute('SELECT raw_email FROM emails WHERE id = %s', (email_id,))
+	email_row = cursor.fetchone()
+	cursor.close()
+	conn.close()
+	
+	if not email_row or not email_row['raw_email']:
+		return jsonify({'error': 'Attachment data not available'}), 404
+	
+	import io
+	from email import policy
+	from email.parser import BytesParser
+	
+	try:
+		raw_bytes = email_row['raw_email'].encode('utf-8', errors='replace')
+		msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+		
+		for part in msg.walk():
+			content_disposition = part.get('Content-Disposition', '')
+			if 'attachment' not in content_disposition:
+				continue
+			part_filename = part.get_filename()
+			if part_filename == file_name or part_filename == file_name:
+				payload = part.get_payload(decode=True)
+				if payload:
+					return send_file(
+						io.BytesIO(payload),
+						as_attachment=True,
+						download_name=file_name,
+						mimetype=content_type or 'application/octet-stream'
+					)
+		
+		return jsonify({'error': 'Attachment not found in email content'}), 404
+	except Exception as e:
+		logger.error(f"Error extracting attachment {attachment_id}: {e}")
+		return jsonify({'error': 'Failed to extract attachment'}), 500
 
 @bp.route('/api/attachments/<int:attachment_id>', methods=['DELETE'])
 @token_required

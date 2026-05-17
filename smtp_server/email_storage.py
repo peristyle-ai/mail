@@ -98,6 +98,7 @@ def extract_subject(msg: EmailMessage) -> str:
 def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
     """Extract and save attachments from email message.
 
+    Saves attachment files to disk and stores metadata in the database.
     Uses savepoints so that attachment failures do not roll back
     the enclosing email transaction.
     """
@@ -106,20 +107,24 @@ def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
 
     attachment_count = 0
     for part in msg.walk():
-        # Skip the message body parts
         content_disposition = part.get('Content-Disposition', '')
-        if 'attachment' not in content_disposition:
+        content_id = part.get('Content-ID', '')
+
+        is_attachment = 'attachment' in content_disposition
+        is_inline_image = ('inline' in content_disposition and content_id) or \
+            (part.get_content_maintype() == 'image' and content_id)
+
+        if not is_attachment and not is_inline_image:
+            continue
+        if part.get_content_maintype() == 'multipart':
             continue
 
-        # Get attachment filename
         filename = part.get_filename()
         if not filename:
             filename = f"attachment_{uuid.uuid4().hex[:8]}.bin"
 
-        # Get content type
         content_type = part.get_content_type()
 
-        # Get attachment data
         try:
             data = part.get_payload(decode=True)
             if not data:
@@ -127,22 +132,32 @@ def save_attachments(msg, email_id: int, user_id: int, conn, cursor):
 
             file_size = len(data)
 
-            # Use a savepoint so a bad INSERT does not poison the transaction
+            unique_filename = str(uuid.uuid4())
+            ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+            if ext:
+                unique_filename += '.' + ext
+            file_path = os.path.join(UPLOADS_DIR, unique_filename)
+
+            with open(file_path, 'wb') as f:
+                f.write(data)
+
             cursor.execute('SAVEPOINT att_save')
             try:
                 cursor.execute(
                     '''INSERT INTO attachments
-                       (email_id, file_name, content_type, file_size)
-                       VALUES (%s, %s, %s, %s)''',
-                    (email_id, filename, content_type, file_size)
+                       (email_id, file_name, content_type, file_size, file_path)
+                       VALUES (%s, %s, %s, %s, %s)''',
+                    (email_id, filename, content_type, file_size, file_path)
                 )
                 cursor.execute('RELEASE SAVEPOINT att_save')
             except Exception:
                 cursor.execute('ROLLBACK TO SAVEPOINT att_save')
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 raise
 
             attachment_count += 1
-            logger.info(f"Saved attachment: {filename} ({file_size} bytes)")
+            logger.info(f"Saved attachment: {filename} ({file_size} bytes) -> {file_path}")
 
         except Exception as e:
             logger.error(f"Error saving attachment {filename}: {e}")
