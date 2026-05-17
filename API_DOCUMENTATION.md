@@ -393,12 +393,15 @@ Returns attachment metadata for an email. Uses folder-based authorization.
 ]
 ```
 
-**Note**: Incoming SMTP attachments are extracted from raw MIME content and stored as metadata only (no `file_path`). The actual file data is embedded in the email's `raw_email` field.
-
 #### Download
 **Endpoint**: `GET /api/attachments/<id>`
 
-Download an attachment file. Only available for attachments with a filesystem path (uploaded via API). Returns 404 if the attachment only has metadata (from incoming MIME emails).
+Download an attachment file. For attachments saved to disk (incoming SMTP or uploaded via API), serves the file directly. For legacy attachments with no filesystem path, extracts the file from the email's `raw_email` MIME data on-the-fly.
+
+**Response**: Binary file download with `Content-Disposition: attachment` header.
+
+**Error Responses**:
+- `404`: Attachment not found, not authorized, or data not available in any form
 
 #### Delete
 **Endpoint**: `DELETE /api/attachments/<id>`
@@ -807,6 +810,7 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ## Changelog
 
+- **2026-05-16**: Incoming SMTP attachments now saved to disk (not just metadata); inline images with Content-ID also saved as attachments; download endpoint falls back to extracting from `raw_email` for legacy attachments missing `file_path`
 - **2026-05-15**: Added folder filter to `GET /api/emails?folder=Inbox`; added `folder` field to email responses; fixed self-email duplication (no Inbox copy when sender=recipient); fixed Inbox auto-creation for new recipients in outbound storage; fixed attachment column names (removed `file_data`, use `file_name`/`file_path`); attachment save errors no longer roll back email storage; folder-based authorization for attachment endpoints
 - **2026-02-17**: Added MIME email endpoint (`POST /api/emails/mime`) for embedded images
 - **2026-02-16**: Added IP blacklist API (`/api/blacklist/ip/*` endpoints)
@@ -821,5 +825,5 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ---
 
-**Last Updated**: 2026-05-15
+**Last Updated**: 2026-05-16
 **Status**: All tests passing, multi-domain email delivery working

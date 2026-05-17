@@ -322,7 +322,7 @@ attachments = response.json()
 # Returns: [{'id': 6, 'file_name': 'test_document.pdf', 'content_type': 'application/pdf', 'file_size': 44, ...}]
 ```
 
-**Note**: Incoming SMTP attachments are stored as metadata only (no `file_path`). The actual file data is embedded in the email's `raw_email` field. Download is only available for files uploaded via the API attachment endpoint.
+**Note**: Incoming SMTP attachments are now saved to disk with their binary data. The `file_path` column in the `attachments` table stores the filesystem path. For legacy attachments that were stored as metadata only (no `file_path`), the download endpoint (`GET /api/attachments/<id>`) automatically extracts the file from the email's `raw_email` MIME data. Inline images (Content-Disposition: inline with Content-ID) are also saved as downloadable attachments.
 
 **Response**: Same as regular send endpoint
 - `pending` - Email queued, waiting to be sent
@@ -900,7 +900,7 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 15. **Self-Email**: When sender=recipient, only Sent copy is created (no duplicate Inbox copy)
 16. **Multi-Domain DKIM**: Each domain has its own DKIM selector (default, fencemate, protophys)
 17. **Auto Inbox Creation**: Inbox folder is auto-created for local recipients who don't have one
-18. **Attachments**: Incoming SMTP attachments stored as metadata only (file data in `raw_email`); API uploads saved to filesystem
+18. **Attachments**: Incoming SMTP attachments are saved to disk with their binary data (attachments directory); inline images with Content-ID are also captured; legacy attachments without `file_path` fall back to extraction from `raw_email`; API uploads saved to filesystem
 19. **Attachment Auth**: Folder-based authorization for all attachment endpoints (not sender_id)
 
 ---
@@ -925,7 +925,7 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-05-15
+**Last Updated**: 2026-05-16
 **Status**: 146 tests passing, multi-domain email delivery working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
@@ -947,3 +947,6 @@ If issues persist:
 - SMTP rate limit: 50 connections per domain
 - Attachment column fix: `file_name` and `file_path` (no `file_data`/`user_id`/`filename`)
 - Attachment savepoints: failed attachments don't roll back email storage
+- Incoming attachments saved to disk with binary data (not just metadata)
+- Inline images (Content-ID) also saved as downloadable attachments
+- Legacy attachment download: falls back to extracting from `raw_email` when `file_path` is NULL
