@@ -8,6 +8,7 @@ from app.routes.folders import bp as folders_bp
 from app.routes.search import bp as search_bp
 from app.routes.attachments import bp as attachments_bp
 from app.routes.blacklist import bp as blacklist_bp
+from app.routes.inbound import inbound_bp
 
 def create_app():
 	app = Flask(__name__)
@@ -52,6 +53,7 @@ def create_app():
 	app.register_blueprint(search_bp)
 	app.register_blueprint(attachments_bp)
 	app.register_blueprint(blacklist_bp)
+	app.register_blueprint(inbound_bp)
 	return app
 
 app = create_app()
