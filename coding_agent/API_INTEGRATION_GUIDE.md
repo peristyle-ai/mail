@@ -879,6 +879,47 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 
 ---
 
+### Inbound Webhook (SMTP2GO Relay)
+
+**Endpoint**: `POST /inbound`
+
+No JWT authentication required. This endpoint is called by SMTP2GO or similar relay services when an inbound email is received for a configured domain.
+
+**Form-encoded Example**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -d "from=user@example.com&to=the operator@example.com.au&subject=Test&text=Hello"
+```
+
+**JSON Example**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -H "Content-Type: application/json" \
+  -d '{"from":"user@example.com","to":"support@example.io","subject":"Test","text":"Hello","html":"<b>Hello</b>"}'
+```
+
+**Fields**:
+- `from` (required): Sender email address
+- `to` (required): Recipient email address (must be a local user)
+- `subject` (optional): Email subject
+- `text` (optional): Plain text body
+- `html` (optional): HTML body
+- `sender_ip` (optional): Sender's IP address
+- `mail` (optional): Raw MIME content (for attachment extraction)
+
+**Responses**:
+- `200 {"status": "received", "email_id": N}` — Email stored successfully
+- `200 {"status": "rejected", "reason": "unknown recipient"}` — No local user for recipient (SMTP2GO won't retry)
+- `200 {"status": "blocked"}` — Sender is in the blocklist
+- `400` — Missing/invalid fields
+- `403` — Invalid SMTP2GO signature (when `SMTP2GO_WEBHOOK_SECRET` is set)
+- `413` — Payload too large (>50MB)
+- `429` — Rate limit exceeded (60/min per IP)
+
+**Security**: Email validation, header injection prevention, rate limiting, sender blocklist, optional SMTP2GO HMAC-SHA256 signature verification (set `SMTP2GO_WEBHOOK_SECRET` env var), payload size limits.
+
+---
+
 ## Important Notes
 
 1. **User IDs**: 
@@ -888,7 +929,8 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 3. **Delivery Time**: Expect 30-60 seconds for delivery to Gmail
 4. **Rate Limiting**: 50 connections per domain, 100/hour total
 5. **Queue**: Emails are processed every 30 seconds
-6. **Authentication**: All API endpoints (except /health) require Bearer token
+6. **Authentication**: All API endpoints except `/health` and `/inbound` require Bearer token
+7. **Inbound Webhook**: `POST /inbound` requires no auth — called by SMTP2GO relay services
 7. **IP Blacklist**: Use `/api/blacklist/ip/*` endpoints to manage blocked IPs
 8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
 9. **HTML Emails**: Received emails include `html` field for HTML content
@@ -902,6 +944,8 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 17. **Auto Inbox Creation**: Inbox folder is auto-created for local recipients who don't have one
 18. **Attachments**: Incoming SMTP attachments are saved to disk with their binary data (attachments directory); inline images with Content-ID are also captured; legacy attachments without `file_path` fall back to extraction from `raw_email`; API uploads saved to filesystem
 19. **Attachment Auth**: Folder-based authorization for all attachment endpoints (not sender_id)
+20. **Inbound Webhook**: `POST /inbound` accepts emails from SMTP2GO; no JWT required; returns 200 for unknown/blocked recipients to prevent retries
+21. **SMTP2GO Signature**: Set `SMTP2GO_WEBHOOK_SECRET` env var to enable HMAC-SHA256 verification of inbound requests
 
 ---
 
@@ -925,7 +969,7 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-05-16
+**Last Updated**: 2026-05-21
 **Status**: 146 tests passing, multi-domain email delivery working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
@@ -950,3 +994,6 @@ If issues persist:
 - Incoming attachments saved to disk with binary data (not just metadata)
 - Inline images (Content-ID) also saved as downloadable attachments
 - Legacy attachment download: falls back to extracting from `raw_email` when `file_path` is NULL
+- Inbound webhook endpoint (`POST /inbound`) for SMTP2GO relay — no JWT required
+- Rate limiting (60/min per IP), email validation, header injection prevention on inbound
+- SMTP2GO HMAC-SHA256 signature verification (set `SMTP2GO_WEBHOOK_SECRET` env var)

@@ -599,6 +599,91 @@ curl http://192.168.4.41:5003/api/blacklist/stats \
 
 ---
 
+### Inbound Webhook (SMTP2GO Relay)
+
+**Endpoint**: `POST /inbound`
+
+Receive inbound emails from SMTP2GO or similar relay services. **No JWT authentication required** — this endpoint is called by external relay services, not end users.
+
+Configure SMTP2GO to forward inbound emails to `https://mail.example.com.au/inbound` (or `http://192.168.4.41:5003/inbound` for direct access).
+
+**Supported Content Types**:
+- `application/x-www-form-urlencoded` (SMTP2GO default)
+- `multipart/form-data` (when attachments present)
+- `application/json`
+
+**Request Fields**:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `from` | Yes | Sender email address |
+| `to` | Yes | Recipient email address |
+| `subject` | No | Email subject (max 500 chars) |
+| `text` | No | Plain text body |
+| `html` | No | HTML body |
+| `sender_ip` | No | Sender's IP address |
+| `mail` | No | Raw MIME content (for attachment extraction) |
+
+**Form-encoded Example**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -d "from=user@example.com&to=the operator@example.com.au&subject=Test&text=Hello"
+```
+
+**JSON Example**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -H "Content-Type: application/json" \
+  -d '{"from":"user@example.com","to":"support@example.io","subject":"Test","text":"Hello","html":"<b>Hello</b>"}'
+```
+
+**Successful Response** (200):
+```json
+{
+  "status": "received",
+  "email_id": 2564
+}
+```
+
+**Unknown Recipient Response** (200):
+```json
+{
+  "status": "rejected",
+  "reason": "unknown recipient"
+}
+```
+
+**Blocked Sender Response** (200):
+```json
+{
+  "status": "blocked"
+}
+```
+
+**Error Responses**:
+- `400`: Missing required fields, invalid email format, unsupported content type
+- `403`: Invalid SMTP2GO signature (when `SMTP2GO_WEBHOOK_SECRET` is set)
+- `413`: Payload exceeds 50MB limit
+- `429`: Rate limit exceeded (60 requests/minute per IP)
+
+**Security Features**:
+- **Rate limiting**: 60 requests per minute per source IP
+- **Email validation**: Regex validation, max 320 chars
+- **Header injection prevention**: CR/LF stripped from all header fields
+- **Payload size limits**: 50MB max, subject 500 chars, body 5MB
+- **Sender blocklist**: Checked before storing; returns `{"status": "blocked"}`
+- **SMTP2GO signature verification**: Set `SMTP2GO_WEBHOOK_SECRET` env var to enable HMAC-SHA256 verification of the `X-SMTP2GO-Signature` header
+- **Attachment safety**: Filenames sanitized, individual attachment size limit 25MB, stored to disk with DB metadata
+- **SQL injection**: All queries use parameterized inputs
+
+**Notes**:
+- Returns HTTP 200 for unknown/blocked recipients so SMTP2GO does not retry
+- Creates sender user with `is_local=FALSE` if not found
+- Extracts and saves attachments from the `mail` MIME field when provided
+- Local domains served: `example.com.au`, `mailrelay.com`, `example.ai`, `example.ai`, `example.io`
+
+---
+
 ### Health Check
 
 **Endpoint**: `GET /health`
@@ -810,6 +895,7 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ## Changelog
 
+- **2026-05-21**: Added `POST /inbound` webhook endpoint for SMTP2GO relay; hardened with rate limiting, email validation, header injection prevention, SMTP2GO HMAC signature verification, payload size limits
 - **2026-05-16**: Incoming SMTP attachments now saved to disk (not just metadata); inline images with Content-ID also saved as attachments; download endpoint falls back to extracting from `raw_email` for legacy attachments missing `file_path`
 - **2026-05-15**: Added folder filter to `GET /api/emails?folder=Inbox`; added `folder` field to email responses; fixed self-email duplication (no Inbox copy when sender=recipient); fixed Inbox auto-creation for new recipients in outbound storage; fixed attachment column names (removed `file_data`, use `file_name`/`file_path`); attachment save errors no longer roll back email storage; folder-based authorization for attachment endpoints
 - **2026-02-17**: Added MIME email endpoint (`POST /api/emails/mime`) for embedded images
@@ -825,5 +911,5 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 
 ---
 
-**Last Updated**: 2026-05-16
+**Last Updated**: 2026-05-21
 **Status**: All tests passing, multi-domain email delivery working
