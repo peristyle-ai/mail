@@ -13,6 +13,8 @@ from app.routes.inbound import inbound_bp
 def create_app():
 	app = Flask(__name__)
 	
+	app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
+	
 	# Enable CORS for all domains (safe for local development)
 	CORS(app)
 	

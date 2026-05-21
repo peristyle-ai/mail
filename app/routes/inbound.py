@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from email.utils import parseaddr
 
@@ -15,17 +18,87 @@ LOCAL_DOMAINS = [
 	'example.ai', 'example.io', 'localhost', 'example.com',
 ]
 
+MAX_SUBJECT_LENGTH = 500
+MAX_BODY_LENGTH = 5_000_000
+MAX_RAW_MIME_LENGTH = 50_000_000
+MAX_EMAIL_LENGTH = 320
+MAX_SENDER_IP_LENGTH = 45
+RATE_LIMIT_PER_IP = 60
+RATE_LIMIT_WINDOW = 60
+
+_inbound_rate_limits: dict = {}
+
+SMTP2GO_WEBHOOK_SECRET = None
+
+
+def _load_webhook_secret():
+	global SMTP2GO_WEBHOOK_SECRET
+	import os
+	secret = os.environ.get('SMTP2GO_WEBHOOK_SECRET', '').strip()
+	if secret:
+		SMTP2GO_WEBHOOK_SECRET = secret
+
+
+_load_webhook_secret()
+
+
+def _sanitize_string(s: str) -> str:
+	if s is None:
+		return ''
+	return s.replace('\x00', '')
+
+
+def _strip_newlines(s: str) -> str:
+	return s.replace('\r', '').replace('\n', '')
+
 
 def extract_email(address: str) -> str:
-	"""Extract email address from 'Name <email@domain.com>' or plain email."""
 	parsed = parseaddr(address)
 	if parsed[1]:
-		return parsed[1].lower().strip()
-	return address.lower().strip()
+		email = parsed[1].lower().strip()
+	else:
+		email = address.lower().strip()
+	if len(email) > MAX_EMAIL_LENGTH:
+		return ''
+	if not re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', email):
+		return ''
+	return email
+
+
+def _validate_sender_ip(ip_str: str) -> str:
+	ip_str = ip_str.strip()
+	if len(ip_str) > MAX_SENDER_IP_LENGTH:
+		return ''
+	if not re.match(r'^[\d.:a-fA-F]+$', ip_str):
+		return ''
+	return ip_str
+
+
+def _check_rate_limit(ip_address: str) -> bool:
+	now = time.time()
+	cutoff = now - RATE_LIMIT_WINDOW
+	_inbound_rate_limits.setdefault(ip_address, [])
+	_inbound_rate_limits[ip_address] = [
+		t for t in _inbound_rate_limits[ip_address] if t > cutoff
+	]
+	if len(_inbound_rate_limits[ip_address]) >= RATE_LIMIT_PER_IP:
+		return False
+	_inbound_rate_limits[ip_address].append(now)
+	return True
+
+
+def _verify_smtp2go_signature(request_data: bytes, signature: str) -> bool:
+	if not SMTP2GO_WEBHOOK_SECRET:
+		return True
+	expected = hmac.new(
+		SMTP2GO_WEBHOOK_SECRET.encode('utf-8'),
+		request_data,
+		hashlib.sha256
+	).hexdigest()
+	return hmac.compare_digest(expected, signature)
 
 
 def is_sender_blocked(sender_email: str) -> bool:
-	"""Check if sender email or domain is in the blocklist."""
 	domain = sender_email.split('@')[-1] if '@' in sender_email else ''
 	conn = get_db_connection()
 	cursor = conn.cursor()
@@ -44,7 +117,6 @@ def is_sender_blocked(sender_email: str) -> bool:
 
 
 def resolve_recipient_user(recipient_email: str):
-	"""Look up local user by email. Returns (user_id, is_local) or None."""
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
@@ -62,7 +134,6 @@ def resolve_recipient_user(recipient_email: str):
 
 
 def find_or_create_sender(sender_email: str) -> int:
-	"""Find or create a user record for the sender. Returns user_id."""
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
@@ -71,7 +142,7 @@ def find_or_create_sender(sender_email: str) -> int:
 		if row:
 			return row['id']
 
-		sender_username = sender_email.split('@')[0] if '@' in sender_email else 'unknown'
+		sender_username = sender_email.split('@')[0][:100] if '@' in sender_email else 'unknown'
 		cursor.execute(
 			'''INSERT INTO users (email, password_hash, name, is_local, created_at)
 			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
@@ -85,7 +156,6 @@ def find_or_create_sender(sender_email: str) -> int:
 
 
 def get_or_create_inbox(user_id: int) -> int:
-	"""Get or create Inbox folder for a user. Returns folder_id."""
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
@@ -125,9 +195,31 @@ def receive_inbound_webhook():
 		sender_ip: sender's IP address (optional)
 		mail:     raw MIME content (optional, for attachment extraction)
 	"""
-	content_type = request.content_type or ""
+	# ── Rate limiting ──────────────────────────────────────────────────────────
+	client_ip = request.remote_addr or 'unknown'
+	if not _check_rate_limit(client_ip):
+		logger.warning(f"Inbound rate limit exceeded for {client_ip}")
+		return jsonify({"error": "Rate limit exceeded"}), 429
+
+	# ── Optional: verify SMTP2GO signature ──────────────────────────────────────
+	if SMTP2GO_WEBHOOK_SECRET:
+		signature = request.headers.get('X-SMTP2GO-Signature', '')
+		if not _verify_smtp2go_signature(request.get_data(), signature):
+			logger.warning(f"Inbound: invalid SMTP2GO signature from {client_ip}")
+			return jsonify({"error": "Invalid signature"}), 403
+
+	# ── Payload size limit ─────────────────────────────────────────────────────
+	content_length = request.content_length or 0
+	if content_length > MAX_RAW_MIME_LENGTH:
+		return jsonify({"error": "Payload too large"}), 413
+	if not content_length:
+		raw_data = request.get_data()
+		if len(raw_data) > MAX_RAW_MIME_LENGTH:
+			return jsonify({"error": "Payload too large"}), 413
 
 	# ── Parse payload ──────────────────────────────────────────────────────────
+	content_type = request.content_type or ""
+
 	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
 		sender = request.form.get("from", "")
 		recipient = request.form.get("to", "")
@@ -137,7 +229,9 @@ def receive_inbound_webhook():
 		sender_ip = request.form.get("sender_ip", "")
 		raw_mime = request.form.get("mail", "")
 	elif "application/json" in content_type:
-		data = request.get_json(silent=True) or {}
+		data = request.get_json(silent=True)
+		if not data or not isinstance(data, dict):
+			return jsonify({"error": "Invalid JSON"}), 400
 		sender = data.get("from", "")
 		recipient = data.get("to", "")
 		subject = data.get("subject", "")
@@ -148,19 +242,34 @@ def receive_inbound_webhook():
 	else:
 		return jsonify({"error": "Unsupported content type"}), 400
 
-	logger.info(f"Inbound webhook: from={sender} to={recipient} subject={subject}")
+	# ── Type validation ─────────────────────────────────────────────────────────
+	for field_name, val in [
+		('from', sender), ('to', recipient), ('subject', subject),
+		('text', text_body), ('html', html_body), ('mail', raw_mime),
+	]:
+		if not isinstance(val, str):
+			return jsonify({"error": f"Invalid field type: {field_name}"}), 400
 
-	# ── Validation ─────────────────────────────────────────────────────────────
+	sender_ip = sender_ip if isinstance(sender_ip, str) else ""
+
+	# ── Required field validation ───────────────────────────────────────────────
 	if not sender or not recipient:
 		return jsonify({"error": "Missing sender or recipient"}), 400
 
 	sender_email = extract_email(sender)
 	recipient_email = extract_email(recipient)
 
-	if not sender_email or '@' not in sender_email:
+	if not sender_email:
 		return jsonify({"error": "Invalid sender email"}), 400
-	if not recipient_email or '@' not in recipient_email:
+	if not recipient_email:
 		return jsonify({"error": "Invalid recipient email"}), 400
+
+	# ── Length limits ───────────────────────────────────────────────────────────
+	subject = subject[:MAX_SUBJECT_LENGTH] if subject else subject
+	text_body = text_body[:MAX_BODY_LENGTH] if text_body else text_body
+	html_body = html_body[:MAX_BODY_LENGTH] if html_body else html_body
+	raw_mime = raw_mime[:MAX_RAW_MIME_LENGTH] if raw_mime else raw_mime
+	sender_ip = _validate_sender_ip(sender_ip)
 
 	# ── Sender blocklist check ──────────────────────────────────────────────────
 	if is_sender_blocked(sender_email):
@@ -173,7 +282,8 @@ def receive_inbound_webhook():
 		recipient_domain = recipient_email.split('@')[-1].lower() if '@' in recipient_email else ''
 		if recipient_domain not in LOCAL_DOMAINS:
 			logger.info(f"Inbound: unknown recipient domain {recipient_email}")
-			return jsonify({"status": "rejected", "reason": "unknown recipient"}), 200
+		else:
+			logger.info(f"Inbound: no local user for {recipient_email}")
 		return jsonify({"status": "rejected", "reason": "unknown recipient"}), 200
 
 	recipient_id = result[0]
@@ -184,25 +294,20 @@ def receive_inbound_webhook():
 	# ── Get recipient's Inbox folder ────────────────────────────────────────────
 	inbox_id = get_or_create_inbox(recipient_id)
 
-	# ── Build headers string ────────────────────────────────────────────────────
-	headers_str = f"from: {sender_email}\nto: {recipient_email}\n"
+	# ── Build headers string (stripped of newlines to prevent injection) ────────
+	headers_str = f"from: {_strip_newlines(sender_email)}\nto: {_strip_newlines(recipient_email)}\n"
 	if subject:
-		headers_str += f"subject: {subject}\n"
+		headers_str += f"subject: {_strip_newlines(subject)[:200]}\n"
 	if sender_ip:
-		headers_str += f"x-sender-ip: {sender_ip}\n"
-	headers_str += f"x-received-via: inbound-webhook\n"
+		headers_str += f"x-sender-ip: {_strip_newlines(sender_ip)}\n"
+	headers_str += "x-received-via: inbound-webhook\n"
 
 	# ── Sanitize strings for PostgreSQL ─────────────────────────────────────────
-	def sanitize(s):
-		if s is None:
-			return ''
-		return s.replace('\x00', '')
-
-	subject_clean = sanitize(subject)
-	body_clean = sanitize(text_body)
-	body_html_clean = sanitize(html_body)
-	headers_clean = sanitize(headers_str)
-	raw_email_clean = sanitize(raw_mime)
+	subject_clean = _sanitize_string(subject)
+	body_clean = _sanitize_string(text_body)
+	body_html_clean = _sanitize_string(html_body)
+	headers_clean = _sanitize_string(headers_str)
+	raw_email_clean = _sanitize_string(raw_mime)
 
 	# ── Store the email ─────────────────────────────────────────────────────────
 	conn = get_db_connection()
@@ -220,7 +325,6 @@ def receive_inbound_webhook():
 		)
 		email_id = cursor.fetchone()['id']
 
-		# Add recipient entry
 		cursor.execute(
 			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')
@@ -256,12 +360,23 @@ def receive_inbound_webhook():
 					filename = part.get_filename()
 					if not filename:
 						filename = f"attachment_{uuid.uuid4().hex[:8]}.bin"
+					filename = _sanitize_string(_strip_newlines(filename))[:255]
+					if not filename:
+						continue
 
 					content_type = part.get_content_type()
+					if len(content_type) > 255:
+						content_type = 'application/octet-stream'
+
 					data = part.get_payload(decode=True)
 					if not data:
 						continue
 					file_size = len(data)
+
+					# Skip suspiciously large individual attachments
+					if file_size > 25_000_000:
+						logger.warning(f"Skipping large attachment {filename} ({file_size} bytes)")
+						continue
 
 					unique_filename = str(uuid.uuid4())
 					ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
