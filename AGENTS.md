@@ -5,6 +5,7 @@
 This is a local mail server with a REST API for local email management without SMTP. It consists of:
 - **Flask API** on port 5003 (`app/`)
 - **SMTP Server** on port 2525 (`smtp_server/`)
+- **Inbound Webhook** at `POST /inbound` (for SMTP2GO relay)
 - **PostgreSQL** database for storage
 
 ## Commands
@@ -186,7 +187,8 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   │   ├── folders.py
 │   │   ├── search.py
 │   │   ├── attachments.py
-│   │   └── blacklist.py      # IP and sender blocklist
+│   │   ├── blacklist.py      # IP and sender blocklist
+│   │   └── inbound.py        # SMTP2GO webhook receiver (POST /inbound)
 │   └── utils/               # Utility functions
 │       ├── auth.py          # JWT, password hashing
 │       ├── users.py         # User management
@@ -246,7 +248,18 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 - `HOST`: Required. The IP address to bind to (e.g., `192.168.4.41`). Server fails to start without it.
 - `DATABASE_URL`: PostgreSQL connection string
 - `JWT_SECRET`: Secret key for JWT tokens
+- `SMTP2GO_WEBHOOK_SECRET`: Optional. HMAC-SHA256 key for verifying SMTP2GO webhook signatures.
 
 ### Blocklist Features
 - **IP Blacklist**: `/api/blacklist/ip/*` - block by IP address
 - **Sender Blocklist**: `/api/blacklist/sender/*` - block specific emails or domains at SMTP level
+
+### Inbound Webhook (SMTP2GO Relay)
+- **Endpoint**: `POST /inbound` - no JWT auth required; called by SMTP2GO or similar relay services
+- Accepts `application/x-www-form-urlencoded`, `multipart/form-data`, or `application/json`
+- Fields: `from`, `to`, `subject`, `text`, `html`, `sender_ip`, `mail` (raw MIME)
+- Checks sender blocklist before storing
+- Creates sender user (is_local=FALSE) if not found
+- Returns 200 with `{"status": "rejected"}` for unknown recipients (prevents SMTP2GO retries)
+- Security: rate limiting (60/min per IP), email validation, header injection prevention, payload size limits, optional SMTP2GO HMAC signature verification
+- Set `SMTP2GO_WEBHOOK_SECRET` env var to enable signature verification
