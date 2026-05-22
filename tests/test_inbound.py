@@ -696,3 +696,118 @@ class TestInboundSenderIPValidation:
 		from app.routes.inbound import _validate_sender_ip
 		long_ip = '1' * 50
 		assert _validate_sender_ip(long_ip) == ''
+
+
+class TestInboundMIMEExtraction:
+	"""Tests for extracting body from raw MIME when text/html are empty"""
+
+	MIME_PLAIN_ONLY = (
+		'From: user@example.com\r\n'
+		'To: inbound_test@example.com.au\r\n'
+		'Subject: MIME Test\r\n'
+		'Content-Type: text/plain; charset=utf-8\r\n'
+		'MIME-Version: 1.0\r\n'
+		'\r\n'
+		'This is the plain text body from MIME.\r\n'
+	)
+
+	MIME_HTML_AND_PLAIN = (
+		'From: user@example.com\r\n'
+		'To: inbound_test@example.com.au\r\n'
+		'Subject: MIME HTML Test\r\n'
+		'MIME-Version: 1.0\r\n'
+		'Content-Type: multipart/alternative; boundary="boundary123"\r\n'
+		'\r\n'
+		'--boundary123\r\n'
+		'Content-Type: text/plain; charset=utf-8\r\n'
+		'\r\n'
+		'Plain text version here.\r\n'
+		'--boundary123\r\n'
+		'Content-Type: text/html; charset=utf-8\r\n'
+		'\r\n'
+		'<p>HTML version here.</p>\r\n'
+		'--boundary123--\r\n'
+	)
+
+	def test_mime_extracts_text_body(self, inbound_client, local_user):
+		"""Test that plain text body is extracted from raw MIME when text field is empty"""
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'MIME Plain Test',
+			'text': '',
+			'html': '',
+			'mail': self.MIME_PLAIN_ONLY
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body, body_html FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert 'plain text body from MIME' in email['body']
+		assert email['body_html'] is None or email['body_html'] == ''
+
+	def test_mime_extracts_html_and_text(self, inbound_client, local_user):
+		"""Test that both text and HTML are extracted from multipart MIME"""
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'MIME HTML Test',
+			'text': '',
+			'html': '',
+			'mail': self.MIME_HTML_AND_PLAIN
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body, body_html FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert 'Plain text version' in email['body']
+		assert 'HTML version' in email['body_html']
+
+	def test_text_field_takes_priority_over_mime(self, inbound_client, local_user):
+		"""Test that explicit text field takes priority over MIME extraction"""
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Priority Test',
+			'text': 'Explicit text field',
+			'mail': self.MIME_PLAIN_ONLY
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert email['body'] == 'Explicit text field'
+
+	def test_smtp2go_event_fields_accepted(self, inbound_client, local_user):
+		"""Test that SMTP2GO event webhook field names are accepted as fallbacks"""
+		response = inbound_client.post('/inbound', data={
+			'from_address': 'user@example.com',
+			'rcpt': 'inbound_test@example.com.au',
+			'subject': 'SMTP2GO Event',
+			'text': 'From event webhook'
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert 'From event webhook' in email['body']
