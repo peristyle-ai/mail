@@ -217,28 +217,70 @@ def receive_inbound_webhook():
 		if len(raw_data) > MAX_RAW_MIME_LENGTH:
 			return jsonify({"error": "Payload too large"}), 413
 
-	# ── Parse payload ──────────────────────────────────────────────────────────
+	# ── Debug: log full request details ────────────────────────────────────────
 	content_type = request.content_type or ""
-
+	content_length = request.content_length or 0
+	logger.info(f"Inbound: content_type={content_type}, content_length={content_length}, remote_addr={client_ip}")
 	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
-		sender = request.form.get("from", "")
-		recipient = request.form.get("to", "")
-		subject = request.form.get("subject", "")
+		form_keys = list(request.form.keys())
+		form_sizes = {k: min(len(request.form.get(k, '')), 200) for k in form_keys}
+		file_keys = list(request.files.keys())
+		file_sizes = {}
+		for fk in file_keys:
+			f = request.files.get(fk)
+			if f:
+				f.seek(0, 2)
+				file_sizes[fk] = f.tell()
+				f.seek(0)
+		logger.info(f"Inbound: form_keys={form_keys}, sizes={form_sizes}, files={file_keys}, file_sizes={file_sizes}")
+		for key in form_keys:
+			val = request.form.get(key, '')[:300]
+			logger.info(f"Inbound: field '{key}' = {val}")
+		for key in file_keys:
+			f = request.files.get(key)
+			if f:
+				logger.info(f"Inbound: file '{key}' filename={f.filename}, content_type={f.content_type}")
+	elif "application/json" in content_type:
+		json_data = request.get_json(silent=True)
+		if json_data and isinstance(json_data, dict):
+			for key, val in json_data.items():
+				logger.info(f"Inbound: json '{key}' = {str(val)[:300]}")
+		else:
+			logger.info(f"Inbound: JSON body invalid or empty")
+	else:
+		raw_data = request.get_data()
+		logger.info(f"Inbound: unknown content type, raw_data_len={len(raw_data)}, first_500={raw_data[:500]}")
+
+	# ── Parse payload ──────────────────────────────────────────────────────────
+	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+		sender = request.form.get("from", "") or request.form.get("from_address", "") or request.form.get("sender", "")
+		recipient = request.form.get("to", "") or request.form.get("rcpt", "") or request.form.get("recipient", "")
+		subject = request.form.get("subject", "") or request.form.get("subjects", "")
 		text_body = request.form.get("text", "")
 		html_body = request.form.get("html", "")
-		sender_ip = request.form.get("sender_ip", "")
-		raw_mime = request.form.get("mail", "")
+		sender_ip = request.form.get("sender_ip", "") or request.form.get("srchost", "")
+		raw_mime = request.form.get("mail", "") or request.form.get("raw_email", "")
+		# Check for file uploads (Cloudflare Email Workers send raw email as a file)
+		if not raw_mime and request.files:
+			for file_key in request.files:
+				uploaded = request.files.get(file_key)
+				if uploaded:
+					try:
+						raw_mime = uploaded.read().decode('utf-8', errors='replace')
+					except Exception as e:
+						logger.warning(f"Inbound: failed to read uploaded file '{file_key}': {e}")
+					break
 	elif "application/json" in content_type:
 		data = request.get_json(silent=True)
 		if not data or not isinstance(data, dict):
 			return jsonify({"error": "Invalid JSON"}), 400
-		sender = data.get("from", "")
-		recipient = data.get("to", "")
+		sender = data.get("from", "") or data.get("from_address", "") or data.get("sender", "")
+		recipient = data.get("to", "") or data.get("rcpt", "") or data.get("recipient", "")
 		subject = data.get("subject", "")
 		text_body = data.get("text", data.get("body", ""))
 		html_body = data.get("html", "")
-		sender_ip = data.get("sender_ip", "")
-		raw_mime = data.get("mail", "")
+		sender_ip = data.get("sender_ip", "") or data.get("srchost", "")
+		raw_mime = data.get("mail", "") or data.get("raw_email", "")
 	else:
 		return jsonify({"error": "Unsupported content type"}), 400
 
@@ -309,6 +351,83 @@ def receive_inbound_webhook():
 	headers_clean = _sanitize_string(headers_str)
 	raw_email_clean = _sanitize_string(raw_mime)
 
+	# ── Extract body from MIME if text/html are empty ──────────────────────────
+	if raw_email_clean and not body_clean and not body_html_clean:
+		try:
+			import base64 as b64mod
+			from email import policy
+			from email.parser import BytesParser
+
+			raw_bytes = raw_email_clean.encode('utf-8', errors='replace')
+
+			if raw_bytes[:100].lstrip().startswith(b'Received:') or \
+			   raw_bytes[:100].lstrip().startswith(b'From:') or \
+			   raw_bytes[:100].lstrip().startswith(b'Return-Path:') or \
+			   raw_bytes[:100].lstrip().startswith(b'Delivered-To:') or \
+			   raw_bytes[:100].lstrip().startswith(b'MIME-Version:') or \
+			   b'Content-Type:' in raw_bytes[:500]:
+				mime_bytes = raw_bytes
+			else:
+				try:
+					mime_bytes = b64mod.b64decode(raw_bytes)
+					logger.info(f"Inbound: decoded Base64 raw_email ({len(raw_bytes)} -> {len(mime_bytes)} bytes)")
+				except Exception:
+					mime_bytes = raw_bytes
+					logger.info(f"Inbound: raw_email not valid Base64, using as-is")
+
+			msg = BytesParser(policy=policy.default).parsebytes(mime_bytes)
+
+			if not body_clean:
+				for part in msg.walk():
+					if part.get_content_type() == 'text/plain':
+						payload = part.get_payload(decode=True)
+						if payload:
+							charset = part.get_content_charset() or 'utf-8'
+							try:
+								body_clean = _sanitize_string(payload.decode(charset, errors='replace'))
+							except (LookupError, UnicodeDecodeError):
+								body_clean = _sanitize_string(payload.decode('utf-8', errors='replace'))
+							break
+
+			if not body_html_clean:
+				for part in msg.walk():
+					if part.get_content_type() == 'text/html':
+						payload = part.get_payload(decode=True)
+						if payload:
+							charset = part.get_content_charset() or 'utf-8'
+							try:
+								body_html_clean = _sanitize_string(payload.decode(charset, errors='replace'))
+							except (LookupError, UnicodeDecodeError):
+								body_html_clean = _sanitize_string(payload.decode('utf-8', errors='replace'))
+							break
+
+			# Extract subject from MIME if ours is empty
+			if not subject_clean:
+				mime_subject = msg.get('Subject', '')
+				if mime_subject:
+					subject_clean = _sanitize_string(_strip_newlines(str(mime_subject)))[:MAX_SUBJECT_LENGTH]
+
+			logger.info(f"Inbound: extracted body from MIME: text={len(body_clean)} html={len(body_html_clean)}")
+		except Exception as e:
+			logger.warning(f"Inbound: failed to extract body from MIME: {e}")
+
+	# ── Decode Base64 raw_email for storage ──────────────────────────────────────
+	if raw_email_clean:
+		try:
+			import base64 as b64mod
+			raw_bytes_check = raw_email_clean.encode('utf-8', errors='replace')
+			if not (raw_bytes_check[:100].lstrip().startswith(b'Received:') or \
+			   raw_bytes_check[:100].lstrip().startswith(b'From:') or \
+			   raw_bytes_check[:100].lstrip().startswith(b'Return-Path:') or \
+			   raw_bytes_check[:100].lstrip().startswith(b'Delivered-To:') or \
+			   raw_bytes_check[:100].lstrip().startswith(b'MIME-Version:') or \
+			   b'Content-Type:' in raw_bytes_check[:500]):
+				decoded = b64mod.b64decode(raw_bytes_check)
+				raw_email_clean = _sanitize_string(decoded.decode('utf-8', errors='replace'))
+				logger.info(f"Inbound: decoded Base64 raw_email for storage ({len(raw_bytes_check)} -> {len(decoded)} bytes)")
+		except Exception:
+			pass
+
 	# ── Store the email ─────────────────────────────────────────────────────────
 	conn = get_db_connection()
 	cursor = conn.cursor()
@@ -333,6 +452,7 @@ def receive_inbound_webhook():
 		# Process attachments from raw MIME if present
 		if raw_mime:
 			try:
+				import base64 as b64mod
 				from email import policy
 				from email.parser import BytesParser
 				import uuid
@@ -344,7 +464,22 @@ def receive_inbound_webhook():
 				os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 				raw_bytes = raw_mime.encode('utf-8', errors='replace')
-				msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+
+				# Decode Base64 if the raw_email was Base64-encoded
+				if raw_bytes[:100].lstrip().startswith(b'Received:') or \
+				   raw_bytes[:100].lstrip().startswith(b'From:') or \
+				   raw_bytes[:100].lstrip().startswith(b'Return-Path:') or \
+				   raw_bytes[:100].lstrip().startswith(b'Delivered-To:') or \
+				   raw_bytes[:100].lstrip().startswith(b'MIME-Version:') or \
+				   b'Content-Type:' in raw_bytes[:500]:
+					mime_bytes = raw_bytes
+				else:
+					try:
+						mime_bytes = b64mod.b64decode(raw_bytes)
+					except Exception:
+						mime_bytes = raw_bytes
+
+				msg = BytesParser(policy=policy.default).parsebytes(mime_bytes)
 
 				for part in msg.walk():
 					content_disposition = part.get('Content-Disposition', '')
