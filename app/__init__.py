@@ -14,6 +14,8 @@ def create_app():
 	app = Flask(__name__)
 	
 	app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
+	app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # 50MB max form field size
+	app.request_class.max_form_memory_size = 50 * 1024 * 1024  # 50MB per Werkzeug
 	
 	# Enable CORS for all domains (safe for local development)
 	CORS(app)
