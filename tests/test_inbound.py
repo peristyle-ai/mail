@@ -811,3 +811,160 @@ class TestInboundMIMEExtraction:
 		cursor.close()
 		conn.close()
 		assert 'From event webhook' in email['body']
+
+	def test_base64_mime_body_extraction(self, inbound_client, local_user):
+		"""Test that Base64-encoded raw_email is decoded and body extracted"""
+		import base64
+
+		mime = (
+			'From: user@example.com\r\n'
+			'To: inbound_test@example.com.au\r\n'
+			'Subject: Base64 Test\r\n'
+			'MIME-Version: 1.0\r\n'
+			'Content-Type: text/plain; charset=utf-8\r\n'
+			'\r\n'
+			'Decoded from Base64!\r\n'
+		)
+		b64_mime = base64.b64encode(mime.encode('utf-8')).decode('ascii')
+
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Base64 Test',
+			'raw_email': b64_mime
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body, body_html, raw_email FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert 'Decoded from Base64' in email['body']
+		assert 'Received:' in email['raw_email'] or 'From:' in email['raw_email']
+
+	def test_base64_mime_multipart_extraction(self, inbound_client, local_user):
+		"""Test Base64-encoded multipart MIME extracts both text and HTML"""
+		import base64
+
+		mime = (
+			'From: user@example.com\r\n'
+			'To: inbound_test@example.com.au\r\n'
+			'Subject: B64 Multipart\r\n'
+			'MIME-Version: 1.0\r\n'
+			'Content-Type: multipart/alternative; boundary="b64test"\r\n'
+			'\r\n'
+			'--b64test\r\n'
+			'Content-Type: text/plain; charset=utf-8\r\n'
+			'\r\n'
+			'Plain text from Base64.\r\n'
+			'--b64test\r\n'
+			'Content-Type: text/html; charset=utf-8\r\n'
+			'\r\n'
+			'<b>HTML from Base64.</b>\r\n'
+			'--b64test--\r\n'
+		)
+		b64_mime = base64.b64encode(mime.encode('utf-8')).decode('ascii')
+
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'B64 Multipart',
+			'raw_email': b64_mime
+		})
+		assert response.status_code == 200
+		email_id = response.get_json()['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT body, body_html FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert 'Plain text from Base64' in email['body']
+		assert 'HTML from Base64' in email['body_html']
+
+
+class TestInboundPayloadLimits:
+	"""Tests for Flask/Werkzeug payload and form size limits"""
+
+	def test_max_content_length_config(self, app):
+		"""Test that MAX_CONTENT_LENGTH is set to 50MB"""
+		assert app.config['MAX_CONTENT_LENGTH'] == 50 * 1024 * 1024
+
+	def test_max_form_memory_size_config(self, app):
+		"""Test that MAX_FORM_MEMORY_SIZE config is set to 50MB"""
+		assert app.config['MAX_FORM_MEMORY_SIZE'] == 50 * 1024 * 1024
+
+	def test_werkzeug_max_form_memory_size(self, app):
+		"""Test that Werkzeug max_form_memory_size is set to 50MB (not default 500KB)"""
+		assert app.request_class.max_form_memory_size == 50 * 1024 * 1024
+
+	def test_werkzeug_not_default_500kb(self, app):
+		"""Test that Werkzeug form memory limit is NOT the default 500KB"""
+		from werkzeug.wrappers.request import Request as WerkzeugRequest
+		default_size = WerkzeugRequest.max_form_memory_size
+		assert app.request_class.max_form_memory_size != default_size
+		assert app.request_class.max_form_memory_size > default_size
+
+	def test_large_form_field_accepted(self, inbound_client, local_user):
+		"""Test that a form field larger than 500KB is accepted (Werkzeug default would reject)"""
+		big_body = 'X' * (600 * 1024)
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Large Body Test',
+			'text': big_body
+		})
+		assert response.status_code == 200
+		data = response.get_json()
+		assert data['status'] == 'received'
+		email_id = data['email_id']
+
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT length(body) as body_len FROM emails WHERE id = %s', (email_id,))
+		email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+		assert email['body_len'] > 500 * 1024
+
+	def test_large_raw_email_base64_accepted(self, inbound_client, local_user):
+		"""Test that a Base64-encoded raw_email larger than 500KB is accepted"""
+		import base64
+
+		big_body = 'A' * (600 * 1024)
+		mime = (
+			'From: user@example.com\r\n'
+			'To: inbound_test@example.com.au\r\n'
+			'Subject: Large B64 Test\r\n'
+			'Content-Type: text/plain; charset=utf-8\r\n'
+			'MIME-Version: 1.0\r\n'
+			'\r\n'
+			+ big_body + '\r\n'
+		)
+		b64_mime = base64.b64encode(mime.encode('utf-8')).decode('ascii')
+		assert len(b64_mime) > 500 * 1024
+
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Large B64 Test',
+			'raw_email': b64_mime
+		})
+		assert response.status_code == 200
+		data = response.get_json()
+		assert data['status'] == 'received'
+
+	def test_payload_over_50mb_rejected(self, inbound_client, local_user):
+		"""Test that payloads exceeding MAX_CONTENT_LENGTH (50MB) are rejected"""
+		big_data = 'Y' * (51 * 1024 * 1024)
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Too Big',
+			'text': big_data
+		})
+		assert response.status_code == 413
