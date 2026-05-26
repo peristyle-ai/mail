@@ -5,7 +5,7 @@
 This is a local mail server with a REST API for local email management without SMTP. It consists of:
 - **Flask API** on port 5003 (`app/`)
 - **SMTP Server** on port 2525 (`smtp_server/`)
-- **Inbound Webhook** at `POST /inbound` (for SMTP2GO relay)
+- **Inbound Webhook** at `POST /inbound` (for SMTP2GO/Cloudflare Email Workers relay)
 - **PostgreSQL** database for storage
 
 ## Commands
@@ -188,7 +188,7 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   │   ├── search.py
 │   │   ├── attachments.py
 │   │   ├── blacklist.py      # IP and sender blocklist
-│   │   └── inbound.py        # SMTP2GO webhook receiver (POST /inbound)
+│   │   └── inbound.py        # Inbound webhook receiver (SMTP2GO, Cloudflare Email Workers) (POST /inbound)
 │   └── utils/               # Utility functions
 │       ├── auth.py          # JWT, password hashing
 │       ├── users.py         # User management
@@ -254,12 +254,18 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 - **IP Blacklist**: `/api/blacklist/ip/*` - block by IP address
 - **Sender Blocklist**: `/api/blacklist/sender/*` - block specific emails or domains at SMTP level
 
-### Inbound Webhook (SMTP2GO Relay)
-- **Endpoint**: `POST /inbound` - no JWT auth required; called by SMTP2GO or similar relay services
+### Inbound Webhook (SMTP2GO / Cloudflare Email Workers)
+- **Endpoint**: `POST /inbound` - no JWT auth required; called by SMTP2GO, Cloudflare Email Workers, or similar relay services
 - Accepts `application/x-www-form-urlencoded`, `multipart/form-data`, or `application/json`
-- Fields: `from`, `to`, `subject`, `text`, `html`, `sender_ip`, `mail` (raw MIME)
+- **Primary fields**: `from`, `to`, `subject`, `text`, `html`, `sender_ip`, `mail` (raw MIME)
+- **Fallback fields** (for SMTP2GO/Cloudflare compatibility): `from_address`/`sender` for `from`, `rcpt`/`recipient` for `to`, `subjects` for `subject`, `srchost` for `sender_ip`, `raw_email` for `mail`, `body` (JSON) for `text`
+- **File uploads**: MIME content can also be sent as a file upload (multipart/form-data)
+- **Base64 auto-decoding**: If `mail`/`raw_email` is Base64-encoded (e.g., from Cloudflare Workers), it's automatically decoded before MIME parsing
+- **MIME body extraction**: When `text`/`html` fields are empty but `mail`/`raw_email` contains MIME, the text/plain and text/html parts are extracted automatically
 - Checks sender blocklist before storing
 - Creates sender user (is_local=FALSE) if not found
-- Returns 200 with `{"status": "rejected"}` for unknown recipients (prevents SMTP2GO retries)
-- Security: rate limiting (60/min per IP), email validation, header injection prevention, payload size limits, optional SMTP2GO HMAC signature verification
+- Returns 200 with `{"status": "rejected", "reason": "unknown recipient"}` for unknown recipients (prevents retries)
+- Returns 200 with `{"status": "blocked"}` for blocklisted senders
+- Security: rate limiting (60/min per IP), email validation, header injection prevention, payload size limits (50MB), attachment safety (25MB per-file), optional SMTP2GO HMAC-SHA256 signature verification
+- **Form size limits**: Flask `MAX_CONTENT_LENGTH=50MB`, `MAX_FORM_MEMORY_SIZE=50MB`, Werkzeug `max_form_memory_size=50MB` (overrides default 500KB) to handle emails with images
 - Set `SMTP2GO_WEBHOOK_SECRET` env var to enable signature verification

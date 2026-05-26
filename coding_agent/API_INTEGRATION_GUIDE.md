@@ -879,16 +879,28 @@ curl -X POST http://192.168.4.41:5003/api/emails \
 
 ---
 
-### Inbound Webhook (SMTP2GO Relay)
+### Inbound Webhook (SMTP2GO / Cloudflare Email Workers)
 
 **Endpoint**: `POST /inbound`
 
-No JWT authentication required. This endpoint is called by SMTP2GO or similar relay services when an inbound email is received for a configured domain.
+No JWT authentication required. This endpoint is called by SMTP2GO, Cloudflare Email Workers, or similar relay services when an inbound email is received for a configured domain.
 
-**Form-encoded Example**:
+**Form-encoded Example (SMTP2GO)**:
 ```bash
 curl -X POST http://192.168.4.41:5003/inbound \
   -d "from=user@example.com&to=the operator@example.com.au&subject=Test&text=Hello"
+```
+
+**Cloudflare Email Workers Example (raw_email field with Base64-encoded MIME)**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -d "from=user@example.com&to=support@example.io&subject=Test&raw_email=$(base64 email.mime)"
+```
+
+**SMTP2GO Event Webhook Example (fallback field names)**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -d "from_address=user@example.com&rcpt=the operator@example.com.au&subjects=Test&sender_ip=1.2.3.4"
 ```
 
 **JSON Example**:
@@ -899,24 +911,34 @@ curl -X POST http://192.168.4.41:5003/inbound \
 ```
 
 **Fields**:
-- `from` (required): Sender email address
-- `to` (required): Recipient email address (must be a local user)
-- `subject` (optional): Email subject
-- `text` (optional): Plain text body
-- `html` (optional): HTML body
-- `sender_ip` (optional): Sender's IP address
-- `mail` (optional): Raw MIME content (for attachment extraction)
+
+| Field | Required | Fallback Fields | Description |
+|-------|----------|-----------------|-------------|
+| `from` | Yes | `from_address`, `sender` | Sender email address |
+| `to` | Yes | `rcpt`, `recipient` | Recipient email address (must be a local user) |
+| `subject` | No | `subjects` | Email subject (max 500 chars) |
+| `text` | No | `body` (JSON only) | Plain text body |
+| `html` | No | — | HTML body |
+| `sender_ip` | No | `srchost` | Sender's IP address |
+| `mail` | No | `raw_email` | Raw MIME content (Base64 auto-decoded; body extracted when text/html empty) |
+
+**File uploads**: MIME content can also be sent as a file upload in multipart/form-data requests.
+
+**Automatic features**:
+- **Base64 auto-decoding**: If `mail`/`raw_email` is Base64-encoded (e.g., Cloudflare Workers), it's decoded before processing
+- **MIME body extraction**: When `text`/`html` are empty but `mail`/`raw_email` contains MIME, plain text and HTML parts are extracted
+- **Sender creation**: External senders are auto-created with `is_local=FALSE`
 
 **Responses**:
 - `200 {"status": "received", "email_id": N}` — Email stored successfully
-- `200 {"status": "rejected", "reason": "unknown recipient"}` — No local user for recipient (SMTP2GO won't retry)
+- `200 {"status": "rejected", "reason": "unknown recipient"}` — No local user for recipient (prevents retries)
 - `200 {"status": "blocked"}` — Sender is in the blocklist
 - `400` — Missing/invalid fields
 - `403` — Invalid SMTP2GO signature (when `SMTP2GO_WEBHOOK_SECRET` is set)
 - `413` — Payload too large (>50MB)
 - `429` — Rate limit exceeded (60/min per IP)
 
-**Security**: Email validation, header injection prevention, rate limiting, sender blocklist, optional SMTP2GO HMAC-SHA256 signature verification (set `SMTP2GO_WEBHOOK_SECRET` env var), payload size limits.
+**Security**: Email validation, header injection prevention, rate limiting (60/min per IP), sender blocklist, optional SMTP2GO HMAC-SHA256 signature verification (`SMTP2GO_WEBHOOK_SECRET` env var), payload size limits, form memory limit 50MB (Werkzeug override).
 
 ---
 
@@ -930,7 +952,7 @@ curl -X POST http://192.168.4.41:5003/inbound \
 4. **Rate Limiting**: 50 connections per domain, 100/hour total
 5. **Queue**: Emails are processed every 30 seconds
 6. **Authentication**: All API endpoints except `/health` and `/inbound` require Bearer token
-7. **Inbound Webhook**: `POST /inbound` requires no auth — called by SMTP2GO relay services
+7. **Inbound Webhook**: `POST /inbound` requires no auth — called by SMTP2GO, Cloudflare Email Workers, or similar relay services
 7. **IP Blacklist**: Use `/api/blacklist/ip/*` endpoints to manage blocked IPs
 8. **Sender Blocklist**: Use `/api/blacklist/sender/*` endpoints to block email addresses or domains
 9. **HTML Emails**: Received emails include `html` field for HTML content
@@ -944,7 +966,7 @@ curl -X POST http://192.168.4.41:5003/inbound \
 17. **Auto Inbox Creation**: Inbox folder is auto-created for local recipients who don't have one
 18. **Attachments**: Incoming SMTP attachments are saved to disk with their binary data (attachments directory); inline images with Content-ID are also captured; legacy attachments without `file_path` fall back to extraction from `raw_email`; API uploads saved to filesystem
 19. **Attachment Auth**: Folder-based authorization for all attachment endpoints (not sender_id)
-20. **Inbound Webhook**: `POST /inbound` accepts emails from SMTP2GO; no JWT required; returns 200 for unknown/blocked recipients to prevent retries
+20. **Inbound Webhook**: `POST /inbound` accepts emails from SMTP2GO, Cloudflare Email Workers, or similar; no JWT required; returns 200 for unknown/blocked recipients to prevent retries; auto-decodes Base64 MIME content; extracts text/html from MIME when fields empty
 21. **SMTP2GO Signature**: Set `SMTP2GO_WEBHOOK_SECRET` env var to enable HMAC-SHA256 verification of inbound requests
 
 ---
@@ -969,7 +991,7 @@ If issues persist:
 
 ---
 
-**Last Updated**: 2026-05-21
+**Last Updated**: 2026-05-23
 **Status**: 146 tests passing, multi-domain email delivery working
 **Features**:
 - MIME email endpoint for embedded images (`POST /api/emails/mime`)
@@ -994,6 +1016,11 @@ If issues persist:
 - Incoming attachments saved to disk with binary data (not just metadata)
 - Inline images (Content-ID) also saved as downloadable attachments
 - Legacy attachment download: falls back to extracting from `raw_email` when `file_path` is NULL
-- Inbound webhook endpoint (`POST /inbound`) for SMTP2GO relay — no JWT required
+- Inbound webhook endpoint (`POST /inbound`) for SMTP2GO/Cloudflare Email Workers — no JWT required
+- Cloudflare Email Workers support: `raw_email` field, `from_address`/`sender`/`rcpt`/`recipient`/`subjects`/`srchost` fallback field names
+- Base64 auto-decoding of `mail`/`raw_email` MIME content (Cloudflare Workers send Base64-encoded)
+- MIME body extraction: text/plain and text/html extracted from raw MIME when `text`/`html` fields are empty
+- File upload support: MIME content can be sent as multipart file upload
+- Werkzeug `max_form_memory_size` set to 50MB (overrides default 500KB) for large emails with images
 - Rate limiting (60/min per IP), email validation, header injection prevention on inbound
 - SMTP2GO HMAC-SHA256 signature verification (set `SMTP2GO_WEBHOOK_SECRET` env var)
