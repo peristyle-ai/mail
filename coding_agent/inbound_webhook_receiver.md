@@ -319,8 +319,24 @@ curl -X POST https://mail.example.com.au/inbound \
 
 ## Out of Scope (for future)
 
-- Attachment handling in the webhook (SMTP2GO sends separately)
 - Forwarding to external email if recipient is not local
 - DMARC/SPF validation of sender
+
+## Completed (previously out of scope)
+
+- ~~Attachment handling in the webhook~~ — Now implemented: MIME content parsed from `mail`/`raw_email`, attachments extracted and saved to disk
+- ~~Storing raw MIME content for replay~~ — Now implemented: `raw_email` column stores decoded MIME content
+
+## Implementation Status (2026-05-23)
+
+The `/inbound` endpoint is fully implemented with the following features beyond the original plan:
+
+- **Cloudflare Email Workers support**: `raw_email` field name, `from_address`/`sender` fallback for `from`, `rcpt`/`recipient` for `to`, `subjects` for `subject`, `srchost` for `sender_ip`
+- **Base64 auto-decoding**: Cloudflare Workers send Base64-encoded MIME; auto-detected and decoded
+- **MIME body extraction**: When `text`/`html` fields are empty, raw MIME is parsed to extract text/plain and text/html parts
+- **File upload support**: MIME content accepted as file upload in multipart/form-data
+- **Attachment extraction**: Attachments and inline images extracted from MIME and saved to disk
+- **Form size limits**: Werkzeug `max_form_memory_size` set to 50MB (overrides default 500KB)
+- **53 tests** covering all features including Base64 decoding, field fallbacks, MIME extraction, and payload limits
 - Storing raw MIME content for replay
 
