@@ -312,6 +312,39 @@ class OutboundQueueProcessor:
 							if header_lower not in skip_headers and not header_lower.startswith('content-'):
 								msg[key.strip()] = value.strip()
 			
+			# ── Attach files from attachments table ────────────────────────────
+			cursor.execute(
+				'SELECT file_name, file_path, content_type FROM attachments WHERE email_id = %s',
+				(email_id,)
+			)
+			attachments = cursor.fetchall()
+			
+			if attachments:
+				logger.info(f"Found {len(attachments)} attachment(s) for email {email_id}")
+			
+			for att in attachments:
+				att_path = att['file_path']
+				if not att_path:
+					continue
+				if not os.path.isfile(att_path):
+					logger.warning(f"Attachment file not found: {att_path}, skipping")
+					continue
+				
+				try:
+					with open(att_path, 'rb') as f:
+						file_data = f.read()
+					maintype = (att['content_type'] or 'application/octet-stream').split('/')[0]
+					subtype = (att['content_type'] or 'application/octet-stream').split('/')[-1]
+					msg.add_attachment(
+						file_data,
+						maintype=maintype,
+						subtype=subtype,
+						filename=att['file_name']
+					)
+					logger.info(f"Attached {att['file_name']} ({len(file_data)} bytes) to email {email_id}")
+				except Exception as e:
+					logger.error(f"Failed to attach {att['file_name']} for email {email_id}: {e}")
+			
 			# Sign with DKIM if configured (multi-domain aware)
 			signing_domain = from_address.split('@')[-1] if '@' in from_address else None
 			dkim_signer = None
