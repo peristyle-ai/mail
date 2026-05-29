@@ -23,6 +23,11 @@ outbound:
   # When sending test emails or system notifications, use this server
   server_host: "127.0.0.1"
   server_port: 2525
+
+  relay_defaults:
+    provider: null
+    host: "mail-au.smtp2go.com"
+    port: 2525
   
   # Default from address for system emails
   # The domain will be automatically set from your DOMAIN env variable

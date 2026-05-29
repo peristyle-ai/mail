@@ -21,6 +21,7 @@ from logging.handlers import RotatingFileHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
+from app.db import ensure_attachments_schema, ensure_domains_table
 from smtp_server import start_smtp_server, stop_smtp_server
 from smtp_server.outbound import OutboundQueueProcessor
 
@@ -97,6 +98,9 @@ def main():
     queue_processor = None
     
     try:
+        ensure_attachments_schema()
+        ensure_domains_table()
+
         # Start SMTP server
         print(f"Starting SMTP Server on {args.smtp_host}:{args.smtp_port}...")
         smtp_controller = start_smtp_server(

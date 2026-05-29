@@ -285,6 +285,39 @@ response = requests.post(
 }
 ```
 
+### Domains
+
+Use these endpoints to configure per-domain outbound relay settings. They are JWT-protected and return relay passwords redacted.
+
+#### List Domains
+**Endpoint**: `GET /api/domains`
+
+#### Get Domain Relay Settings
+**Endpoint**: `GET /api/domains/<domain>`
+
+#### Set or Update Domain Relay Settings
+**Endpoint**: `PUT /api/domains/<domain>/relay`
+
+**Request**:
+```json
+{
+  "relay_provider": "smtp2go",
+  "relay_host": "mail-au.smtp2go.com",
+  "relay_port": 2525,
+  "relay_username": "example.com.au",
+  "relay_password": "smtp-password",
+  "relay_from_address": "support@example.com.au"
+}
+```
+
+#### Verify Domain Relay Settings
+**Endpoint**: `POST /api/domains/<domain>/relay/verify`
+
+Checks TLS connection and SMTP login without sending a message. Successful verification sets `relay_verified=true`.
+
+#### Remove Domain Relay Settings
+**Endpoint**: `DELETE /api/domains/<domain>/relay`
+
 ---
 
 ### Email Delivery Status (NEW)

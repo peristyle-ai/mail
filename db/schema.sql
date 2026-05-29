@@ -165,6 +165,28 @@ CREATE INDEX idx_outbound_next_attempt ON outbound_queue(next_attempt);
 CREATE INDEX idx_outbound_domain ON outbound_queue(recipient_domain);
 CREATE INDEX idx_delivery_logs_email ON delivery_logs(email_id);
 
+-- Per-domain outbound relay configuration
+CREATE TABLE domains (
+	id SERIAL PRIMARY KEY,
+	domain VARCHAR(255) NOT NULL UNIQUE,
+	relay_provider VARCHAR(50),
+	relay_host VARCHAR(255),
+	relay_port INTEGER DEFAULT 2525,
+	relay_username VARCHAR(255),
+	relay_password_encrypted VARCHAR(500),
+	relay_from_address VARCHAR(255),
+	relay_verified BOOLEAN DEFAULT FALSE,
+	relay_verified_at TIMESTAMP WITH TIME ZONE,
+	spf_verified BOOLEAN DEFAULT FALSE,
+	dkim_verified BOOLEAN DEFAULT FALSE,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_domains_domain ON domains(domain);
+CREATE INDEX idx_domains_relay_provider ON domains(relay_provider);
+CREATE INDEX idx_domains_relay_verified ON domains(relay_verified);
+
 -- Major email provider domains (greylist whitelist)
 CREATE TABLE major_providers (
 	id SERIAL PRIMARY KEY,

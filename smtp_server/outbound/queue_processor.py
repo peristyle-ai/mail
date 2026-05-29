@@ -15,9 +15,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.db import get_db_connection
+from app.db import get_db_connection, ensure_domains_table
 from .mx_lookup import MXLookup
 from .delivery import OutboundSMTPSender
+from .smtp2go_delivery import SMTP2GODelivery
 from .storage import log_delivery_attempt
 from .rate_limiter import OutboundRateLimiter
 from .dkim_signer import load_dkim_config, load_multi_domain_dkim
@@ -41,6 +42,7 @@ class OutboundQueueProcessor:
 		
 		self.running = False
 		self.thread: Optional[threading.Thread] = None
+		ensure_domains_table()
 		self.mx_lookup = MXLookup()
 		self.sender = OutboundSMTPSender()
 		self.rate_limiter = OutboundRateLimiter()
@@ -57,6 +59,28 @@ class OutboundQueueProcessor:
 			f"Outbound queue processor initialized: "
 			f"interval={check_interval}s, max_retries={max_retries}"
 		)
+
+	def _get_domain_relay_config(self, from_address: str):
+		"""Load relay configuration for the sender's domain."""
+		if '@' not in from_address:
+			return None
+
+		sender_domain = from_address.split('@', 1)[1].lower()
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		try:
+			cursor.execute(
+				'''SELECT domain, relay_provider, relay_host, relay_port,
+				   relay_username, relay_password_encrypted, relay_from_address,
+				   relay_verified
+				   FROM domains
+				   WHERE domain = %s AND relay_provider IS NOT NULL''',
+				(sender_domain,)
+			)
+			return cursor.fetchone()
+		finally:
+			cursor.close()
+			conn.close()
 	
 	def start(self):
 		"""Start the background processing thread."""
@@ -214,26 +238,46 @@ class OutboundQueueProcessor:
 				return
 			
 			from_address = sender_row['email']
-			
-			# Lookup MX records
-			mail_server = self.mx_lookup.get_mail_server(recipient)
-			if not mail_server:
-				error_msg = f"No mail server found for {domain}"
-				logger.error(error_msg)
-				cursor.execute(
-					'''UPDATE outbound_queue 
-					   SET status = 'failed', error_message = %s
-					   WHERE id = %s''',
-					(error_msg, queue_id)
+			relay_config = self._get_domain_relay_config(from_address)
+			use_relay = bool(
+				relay_config and relay_config['relay_username'] and
+				relay_config['relay_password_encrypted'] and relay_config['relay_verified']
+			)
+
+			server_host = None
+			server_port = None
+			delivery_target = None
+			if use_relay:
+				server_host = relay_config['relay_host'] or 'mail-au.smtp2go.com'
+				server_port = relay_config['relay_port'] or 2525
+				delivery_target = f"{server_host}:{server_port}"
+				logger.info(
+					f"Using {relay_config['relay_provider']} relay for {from_address} via {delivery_target}"
 				)
-				conn.commit()
-				log_delivery_attempt(
-					queue_id, email_id, recipient, 'failure',
-					None, error_msg, None
-				)
-				return
-			
-			server_host, server_port = mail_server
+			else:
+				if relay_config and not relay_config['relay_verified']:
+					logger.info(
+						f"Relay configured for {from_address} but not verified; falling back to direct MX"
+					)
+				mail_server = self.mx_lookup.get_mail_server(recipient)
+				if not mail_server:
+					error_msg = f"No mail server found for {domain}"
+					logger.error(error_msg)
+					cursor.execute(
+						'''UPDATE outbound_queue 
+						   SET status = 'failed', error_message = %s
+						   WHERE id = %s''',
+						(error_msg, queue_id)
+					)
+					conn.commit()
+					log_delivery_attempt(
+						queue_id, email_id, recipient, 'failure',
+						None, error_msg, None
+					)
+					return
+
+				server_host, server_port = mail_server
+				delivery_target = f"{server_host}:{server_port}"
 			
 			# Build email message
 			import uuid
@@ -363,12 +407,21 @@ class OutboundQueueProcessor:
 			# Attempt delivery
 			log_delivery_attempt(
 				queue_id, email_id, recipient, 'attempt',
-				None, None, f"{server_host}:{server_port}"
+				None, None, delivery_target
 			)
-			
-			success, message = self.sender.deliver_email(
-				from_address, recipient, msg, server_host, server_port
-			)
+
+			if use_relay:
+				relay_sender = SMTP2GODelivery(
+					relay_host=server_host,
+					relay_port=server_port,
+					username=relay_config['relay_username'],
+					password=relay_config['relay_password_encrypted']
+				)
+				success, message = relay_sender.deliver(from_address, [recipient], msg)
+			else:
+				success, message = self.sender.deliver_email(
+					from_address, recipient, msg, server_host, server_port
+				)
 			
 			if success:
 				# Mark as sent
@@ -383,7 +436,7 @@ class OutboundQueueProcessor:
 				conn.commit()
 				log_delivery_attempt(
 					queue_id, email_id, recipient, 'success',
-					message, None, server_host
+					message, None, delivery_target
 				)
 				logger.info(f"Successfully delivered email {email_id} to {recipient}")
 			else:
@@ -401,7 +454,7 @@ class OutboundQueueProcessor:
 					conn.commit()
 					log_delivery_attempt(
 						queue_id, email_id, recipient, 'failure',
-						None, message, server_host
+						None, message, delivery_target
 					)
 					logger.error(f"Failed to deliver email {email_id} to {recipient}: {message}")
 				else:
@@ -420,7 +473,7 @@ class OutboundQueueProcessor:
 					conn.commit()
 					log_delivery_attempt(
 						queue_id, email_id, recipient, 'bounce',
-						None, message, server_host
+						None, message, delivery_target
 					)
 					logger.warning(
 						f"Delivery failed for {recipient}, retry {attempt_count+1}/{self.max_retries} "
