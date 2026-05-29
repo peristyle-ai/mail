@@ -1,7 +1,7 @@
 ---
 name: local-email
-description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, and delivery-status checks. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
-version: 1.1.0
+description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, delivery-status checks, and per-domain outbound relay management. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
+version: 1.2.0
 metadata:
   openclaw:
     requires:
@@ -62,6 +62,20 @@ python skills/local-email/scripts/mail_api.py move --id 880 --folder-id 137
 # List folders
 python skills/local-email/scripts/mail_api.py folders
 
+# List configured domains
+python skills/local-email/scripts/mail_api.py domains
+
+# Configure SMTP2GO relay for a domain
+python skills/local-email/scripts/mail_api.py domain-set-relay \
+  --domain "example.com.au" \
+  --provider smtp2go \
+  --username "example.com.au" \
+  --password "smtp-password" \
+  --from-address "support@example.com.au"
+
+# Verify relay credentials
+python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com.au"
+
 # Delete an email
 python skills/local-email/scripts/mail_api.py delete --id 880
 
@@ -121,6 +135,41 @@ python skills/local-email/scripts/mail_api.py move --id 880 --folder-id 137
 python skills/local-email/scripts/mail_api.py folders
 ```
 
+### domains — List configured domains
+
+```bash
+python skills/local-email/scripts/mail_api.py domains
+```
+
+### domain-get — Get one domain configuration
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-get --domain "example.com.au"
+```
+
+### domain-set-relay — Set relay config for a domain
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-set-relay \
+  --domain "example.com.au" \
+  --provider smtp2go \
+  --username "example.com.au" \
+  --password "smtp-password" \
+  --from-address "support@example.com.au"
+```
+
+### domain-verify-relay — Verify relay credentials
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com.au"
+```
+
+### domain-delete-relay — Remove relay config
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-delete-relay --domain "example.com.au"
+```
+
 ### delete — Delete an email
 
 ```bash
@@ -159,7 +208,8 @@ See `references/api.md` for the full endpoint documentation.
 
 - The mail server must be running and reachable at `EMAIL_SERVER`
 - Authentication is per-account — each email address is a separate mailbox
-- Inbound mail is stored in PostgreSQL; outbound is relayed via SMTP
+- Inbound mail is stored in PostgreSQL; outbound uses either verified per-domain relay config or direct MX delivery
 - Inbound webhook (`POST /inbound`) requires no auth — called by SMTP2GO/Cloudflare Email Workers
 - Folder IDs can be found via the `folders` command
+- Relay config is managed via the `domains`, `domain-set-relay`, and `domain-verify-relay` commands
 - Do not print secrets, passwords, bearer tokens, or API keys into chat unless the user explicitly asks

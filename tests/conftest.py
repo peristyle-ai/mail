@@ -31,10 +31,13 @@ def db():
 	cursor = conn.cursor()
 	
 	# Clean up test data but keep users for auth
+	cursor.execute("DELETE FROM delivery_logs")
+	cursor.execute("DELETE FROM outbound_queue")
 	cursor.execute("DELETE FROM email_recipients")
 	cursor.execute("DELETE FROM attachments")
 	cursor.execute("DELETE FROM emails")
 	cursor.execute("DELETE FROM folders")
+	cursor.execute("DELETE FROM domains")
 	cursor.execute("DELETE FROM ip_blacklist")
 	# Note: We don't delete users here because auth_headers fixture needs them
 	

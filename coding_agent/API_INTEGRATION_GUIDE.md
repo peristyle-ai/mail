@@ -146,6 +146,43 @@ curl http://192.168.4.41:5003/api/emails/123/delivery-status \
 **Status Values**:
 - `sent` - Email successfully delivered
 
+### Manage Per-Domain Relay Settings
+
+These endpoints let a client configure SMTP relay delivery per sender domain. If a domain has verified relay credentials, outbound delivery uses the relay instead of direct MX delivery.
+
+**List domains**:
+```bash
+curl http://192.168.4.41:5003/api/domains \
+  -H "Authorization: Bearer <token>"
+```
+
+**Set relay config**:
+```bash
+curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/relay \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "relay_provider": "smtp2go",
+    "relay_host": "mail-au.smtp2go.com",
+    "relay_port": 2525,
+    "relay_username": "example.com.au",
+    "relay_password": "smtp-password",
+    "relay_from_address": "support@example.com.au"
+  }'
+```
+
+**Verify relay config**:
+```bash
+curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/relay/verify \
+  -H "Authorization: Bearer <token>"
+```
+
+**Delete relay config**:
+```bash
+curl -X DELETE http://192.168.4.41:5003/api/domains/example.com.au/relay \
+  -H "Authorization: Bearer <token>"
+```
+
 ### Send Email with Embedded Images (MIME)
 
 **Endpoint**: `POST /api/emails/mime`

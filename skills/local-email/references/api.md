@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is the HTTP API for the Python/PostgreSQL mail server. It provides SMTP sending/receiving via a REST API, folder management, attachments, blacklist management, and inbound webhook processing.
+This is the HTTP API for the Python/PostgreSQL mail server. It provides SMTP sending/receiving via a REST API, folder management, attachments, blacklist management, per-domain outbound relay configuration, and inbound webhook processing.
 
 ## Server
 
@@ -91,6 +91,16 @@ Content-Type: application/json
 | `DELETE` | `/api/blacklist/sender/{id}` | Remove sender blocklist entry |
 | `GET` | `/api/blacklist/sender/check` | Check if sender is blocked |
 
+### Domains / Outbound Relay
+
+| Method | Path | Description |
+|--------|-------|-------------|
+| `GET` | `/api/domains` | List all domains and relay config |
+| `GET` | `/api/domains/{domain}` | Get one domain's relay config |
+| `PUT` | `/api/domains/{domain}/relay` | Set or update relay credentials |
+| `POST` | `/api/domains/{domain}/relay/verify` | Verify relay credentials by TLS/login |
+| `DELETE` | `/api/domains/{domain}/relay` | Remove relay credentials |
+
 ### Inbound Webhook (no auth required)
 
 | Method | Path | Description |
@@ -122,6 +132,31 @@ curl -X POST http://192.168.4.41:5003/api/folders \
   -d '{"name": "Processed"}'
 ```
 
+## Domain Relay Examples
+
+```bash
+# List domains
+curl http://192.168.4.41:5003/api/domains \
+  -H "Authorization: Bearer <token>"
+
+# Set SMTP2GO relay for a domain
+curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/relay \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "relay_provider": "smtp2go",
+    "relay_host": "mail-au.smtp2go.com",
+    "relay_port": 2525,
+    "relay_username": "example.com.au",
+    "relay_password": "smtp-password",
+    "relay_from_address": "support@example.com.au"
+  }'
+
+# Verify relay credentials
+curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/relay/verify \
+  -H "Authorization: Bearer <token>"
+```
+
 ## Environment Variables
 
 | Variable | Description | Example |
@@ -136,7 +171,8 @@ curl -X POST http://192.168.4.41:5003/api/folders \
 - Search by subject first for fast retrieval of API keys or reports
 - Avoid dumping full HTML email bodies unless needed
 - When sending mail for tests, prefer small plain-text messages
-- The server stores inbound mail in PostgreSQL; outbound is relayed via SMTP
+- The server stores inbound mail in PostgreSQL; outbound uses either verified per-domain relay config or direct MX delivery
 - Inbound webhook (`POST /inbound`) requires no auth — called by SMTP2GO/Cloudflare Email Workers
 - Base64-encoded MIME content in `raw_email`/`mail` fields is auto-decoded
 - When `text`/`html` are empty, body content is extracted from raw MIME
+- Relay config is selected by sender domain and only used after `POST /api/domains/{domain}/relay/verify` succeeds

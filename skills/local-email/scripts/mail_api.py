@@ -235,6 +235,68 @@ def cmd_star(args: argparse.Namespace, env: dict[str, str]) -> None:
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def cmd_domains(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains",
+		token=token,
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_domain_get(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}",
+		token=token,
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_domain_set_relay(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = {
+		"relay_provider": args.provider,
+		"relay_host": args.host,
+		"relay_port": args.port,
+		"relay_username": args.username,
+		"relay_password": args.password,
+		"relay_from_address": args.from_address,
+	}
+	response = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}/relay",
+		method="PUT",
+		token=token,
+		payload=payload,
+	)
+	print(json.dumps(response, indent=2, ensure_ascii=False))
+
+
+def cmd_domain_verify_relay(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}/relay/verify",
+		method="POST",
+		token=token,
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_domain_delete_relay(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}/relay",
+		method="DELETE",
+		token=token,
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
 # ── CLI parser ───────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -291,6 +353,31 @@ def build_parser() -> argparse.ArgumentParser:
 	p = sub.add_parser("star", help="Toggle starred status")
 	p.add_argument("--id", required=True, type=int, help="Email ID")
 	p.set_defaults(func=cmd_star)
+
+	p = sub.add_parser("domains", help="List configured domains")
+	p.set_defaults(func=cmd_domains)
+
+	p = sub.add_parser("domain-get", help="Get one domain configuration")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.set_defaults(func=cmd_domain_get)
+
+	p = sub.add_parser("domain-set-relay", help="Set relay config for a domain")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.add_argument("--provider", required=True, help="Relay provider (smtp2go, sendgrid, smtp)")
+	p.add_argument("--host", default=None, help="Relay host (default provider host if supported)")
+	p.add_argument("--port", type=int, default=None, help="Relay port")
+	p.add_argument("--username", required=True, help="Relay SMTP username")
+	p.add_argument("--password", required=True, help="Relay SMTP password")
+	p.add_argument("--from-address", default=None, help="Verified from address for this domain")
+	p.set_defaults(func=cmd_domain_set_relay)
+
+	p = sub.add_parser("domain-verify-relay", help="Verify relay config for a domain")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.set_defaults(func=cmd_domain_verify_relay)
+
+	p = sub.add_parser("domain-delete-relay", help="Remove relay config from a domain")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.set_defaults(func=cmd_domain_delete_relay)
 
 	p = sub.add_parser("login", help="Test mailbox authentication")
 	p.set_defaults(func=cmd_login)

@@ -8,10 +8,14 @@ from app.routes.folders import bp as folders_bp
 from app.routes.search import bp as search_bp
 from app.routes.attachments import bp as attachments_bp
 from app.routes.blacklist import bp as blacklist_bp
+from app.routes.domains import bp as domains_bp
 from app.routes.inbound import inbound_bp
+from app.db import ensure_attachments_schema, ensure_domains_table
 
 def create_app():
 	app = Flask(__name__)
+	ensure_attachments_schema()
+	ensure_domains_table()
 	
 	app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 	app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # 50MB max form field size
@@ -57,6 +61,7 @@ def create_app():
 	app.register_blueprint(search_bp)
 	app.register_blueprint(attachments_bp)
 	app.register_blueprint(blacklist_bp)
+	app.register_blueprint(domains_bp)
 	app.register_blueprint(inbound_bp)
 	return app
 
