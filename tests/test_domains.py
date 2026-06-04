@@ -5,7 +5,9 @@ class TestDomains:
 		response = client.get('/api/domains', headers=auth_headers)
 
 		assert response.status_code == 200
-		assert response.get_json() == {'domains': []}
+		domains = response.get_json()['domains']
+		assert any(item['domain'] == 'example.com.au' for item in domains)
+		assert any(item['domain'] == 'example.ai' for item in domains)
 
 	def test_set_and_get_domain_relay(self, client, auth_headers, db):
 		response = client.put(
@@ -29,6 +31,7 @@ class TestDomains:
 		assert data['relay_from_address'] == 'support@example.com'
 		assert data['relay_verified'] is False
 		assert data['has_password'] is True
+		assert data['has_webhook_secret'] is False
 
 		get_response = client.get('/api/domains/example.com', headers=auth_headers)
 		assert get_response.status_code == 200
@@ -81,3 +84,28 @@ class TestDomains:
 		assert data['domain']['relay_provider'] is None
 		assert data['domain']['has_password'] is False
 		assert data['domain']['relay_verified'] is False
+
+	def test_set_domain_webhook_secret(self, client, auth_headers, db):
+		response = client.put(
+			'/api/domains/example.com/webhook-secret',
+			headers=auth_headers,
+			json={'webhook_secret': 'a' * 32}
+		)
+
+		assert response.status_code == 200
+		data = response.get_json()
+		assert data['success'] is True
+		assert data['domain']['has_webhook_secret'] is True
+		assert data['domain']['webhook_secret_updated_at'] is not None
+
+	def test_rotate_domain_webhook_secret(self, client, auth_headers, db):
+		response = client.post(
+			'/api/domains/example.com/webhook-secret/rotate',
+			headers=auth_headers,
+		)
+
+		assert response.status_code == 200
+		data = response.get_json()
+		assert data['success'] is True
+		assert len(data['webhook_secret']) == 64
+		assert data['domain']['has_webhook_secret'] is True

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -9,14 +10,13 @@ from email.utils import parseaddr
 from flask import Blueprint, request, jsonify
 
 from ..db import get_db_connection
+from ..db import get_seed_domains
+from ..utils.webhooks import verify_webhook_secret
 
 inbound_bp = Blueprint('inbound', __name__)
 logger = logging.getLogger(__name__)
 
-LOCAL_DOMAINS = [
-	'example.com.au', 'mailrelay.com', 'example.ai',
-	'example.ai', 'example.io', 'localhost', 'example.com',
-]
+LOCAL_DOMAINS = get_seed_domains() + ['localhost', 'example.com']
 
 MAX_SUBJECT_LENGTH = 500
 MAX_BODY_LENGTH = 5_000_000
@@ -33,7 +33,6 @@ SMTP2GO_WEBHOOK_SECRET = None
 
 def _load_webhook_secret():
 	global SMTP2GO_WEBHOOK_SECRET
-	import os
 	secret = os.environ.get('SMTP2GO_WEBHOOK_SECRET', '').strip()
 	if secret:
 		SMTP2GO_WEBHOOK_SECRET = secret
@@ -96,6 +95,100 @@ def _verify_smtp2go_signature(request_data: bytes, signature: str) -> bool:
 		hashlib.sha256
 	).hexdigest()
 	return hmac.compare_digest(expected, signature)
+
+
+def _get_local_domains() -> set[str]:
+	"""Return local domains from the domains table, falling back to defaults."""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	try:
+		cursor.execute('SELECT domain FROM domains ORDER BY domain')
+		rows = cursor.fetchall()
+		if rows:
+			return {row['domain'] for row in rows if row.get('domain')}
+		return set(LOCAL_DOMAINS)
+	finally:
+		cursor.close()
+		conn.close()
+
+
+def _get_domain_webhook_secret_hash(domain: str) -> str:
+	"""Return the stored webhook secret hash for a domain, if any."""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	try:
+		cursor.execute('SELECT webhook_secret FROM domains WHERE domain = %s', (domain,))
+		row = cursor.fetchone()
+		if not row:
+			return ''
+		return row.get('webhook_secret') or ''
+	finally:
+		cursor.close()
+		conn.close()
+
+
+def _parse_inbound_payload(content_type: str):
+	"""Parse inbound payload and return normalized field values."""
+	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+		sender = request.form.get("from", "") or request.form.get("from_address", "") or request.form.get("sender", "")
+		recipient = request.form.get("to", "") or request.form.get("rcpt", "") or request.form.get("recipient", "")
+		subject = request.form.get("subject", "") or request.form.get("subjects", "")
+		text_body = request.form.get("text", "")
+		html_body = request.form.get("html", "")
+		sender_ip = request.form.get("sender_ip", "") or request.form.get("srchost", "")
+		raw_mime = request.form.get("mail", "") or request.form.get("raw_email", "")
+		if not raw_mime and request.files:
+			for file_key in request.files:
+				uploaded = request.files.get(file_key)
+				if uploaded:
+					try:
+						raw_mime = uploaded.read().decode('utf-8', errors='replace')
+					except Exception as e:
+						logger.warning(f"Inbound: failed to read uploaded file '{file_key}': {e}")
+					break
+		return sender, recipient, subject, text_body, html_body, sender_ip, raw_mime, None, None
+
+	if "application/json" in content_type:
+		data = request.get_json(silent=True)
+		if not data or not isinstance(data, dict):
+			return '', '', '', '', '', '', '', jsonify({"error": "Invalid JSON"}), 400
+		sender = data.get("from", "") or data.get("from_address", "") or data.get("sender", "")
+		recipient = data.get("to", "") or data.get("rcpt", "") or data.get("recipient", "")
+		subject = data.get("subject", "")
+		text_body = data.get("text", data.get("body", ""))
+		html_body = data.get("html", "")
+		sender_ip = data.get("sender_ip", "") or data.get("srchost", "")
+		raw_mime = data.get("mail", "") or data.get("raw_email", "")
+		return sender, recipient, subject, text_body, html_body, sender_ip, raw_mime, None, None
+
+	return '', '', '', '', '', '', '', jsonify({"error": "Unsupported content type"}), 400
+
+
+def _verify_inbound_request(recipient_email: str) -> tuple[bool, str]:
+	"""Verify inbound request using per-domain secret or legacy SMTP2GO HMAC."""
+	recipient_domain = recipient_email.split('@')[-1].lower() if '@' in recipient_email else ''
+	domain_secret_hash = _get_domain_webhook_secret_hash(recipient_domain)
+	provided_secret = request.headers.get('X-Webhook-Secret', '').strip()
+
+	if domain_secret_hash:
+		if provided_secret:
+			if verify_webhook_secret(provided_secret, domain_secret_hash):
+				return True, ''
+			return False, 'Invalid webhook secret'
+		if SMTP2GO_WEBHOOK_SECRET:
+			signature = request.headers.get('X-SMTP2GO-Signature', '')
+			if _verify_smtp2go_signature(request.get_data(), signature):
+				return True, ''
+			return False, 'Invalid signature'
+		return False, 'Missing webhook secret'
+
+	if SMTP2GO_WEBHOOK_SECRET:
+		signature = request.headers.get('X-SMTP2GO-Signature', '')
+		if _verify_smtp2go_signature(request.get_data(), signature):
+			return True, ''
+		return False, 'Invalid signature'
+
+	return True, ''
 
 
 def is_sender_blocked(sender_email: str) -> bool:
@@ -202,12 +295,6 @@ def receive_inbound_webhook():
 		return jsonify({"error": "Rate limit exceeded"}), 429
 
 	# ── Optional: verify SMTP2GO signature ──────────────────────────────────────
-	if SMTP2GO_WEBHOOK_SECRET:
-		signature = request.headers.get('X-SMTP2GO-Signature', '')
-		if not _verify_smtp2go_signature(request.get_data(), signature):
-			logger.warning(f"Inbound: invalid SMTP2GO signature from {client_ip}")
-			return jsonify({"error": "Invalid signature"}), 403
-
 	# ── Payload size limit ─────────────────────────────────────────────────────
 	content_length = request.content_length or 0
 	if content_length > MAX_RAW_MIME_LENGTH:
@@ -252,37 +339,10 @@ def receive_inbound_webhook():
 		logger.info(f"Inbound: unknown content type, raw_data_len={len(raw_data)}, first_500={raw_data[:500]}")
 
 	# ── Parse payload ──────────────────────────────────────────────────────────
-	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
-		sender = request.form.get("from", "") or request.form.get("from_address", "") or request.form.get("sender", "")
-		recipient = request.form.get("to", "") or request.form.get("rcpt", "") or request.form.get("recipient", "")
-		subject = request.form.get("subject", "") or request.form.get("subjects", "")
-		text_body = request.form.get("text", "")
-		html_body = request.form.get("html", "")
-		sender_ip = request.form.get("sender_ip", "") or request.form.get("srchost", "")
-		raw_mime = request.form.get("mail", "") or request.form.get("raw_email", "")
-		# Check for file uploads (Cloudflare Email Workers send raw email as a file)
-		if not raw_mime and request.files:
-			for file_key in request.files:
-				uploaded = request.files.get(file_key)
-				if uploaded:
-					try:
-						raw_mime = uploaded.read().decode('utf-8', errors='replace')
-					except Exception as e:
-						logger.warning(f"Inbound: failed to read uploaded file '{file_key}': {e}")
-					break
-	elif "application/json" in content_type:
-		data = request.get_json(silent=True)
-		if not data or not isinstance(data, dict):
-			return jsonify({"error": "Invalid JSON"}), 400
-		sender = data.get("from", "") or data.get("from_address", "") or data.get("sender", "")
-		recipient = data.get("to", "") or data.get("rcpt", "") or data.get("recipient", "")
-		subject = data.get("subject", "")
-		text_body = data.get("text", data.get("body", ""))
-		html_body = data.get("html", "")
-		sender_ip = data.get("sender_ip", "") or data.get("srchost", "")
-		raw_mime = data.get("mail", "") or data.get("raw_email", "")
-	else:
-		return jsonify({"error": "Unsupported content type"}), 400
+	parsed_payload = _parse_inbound_payload(content_type)
+	sender, recipient, subject, text_body, html_body, sender_ip, raw_mime, error_response, error_status = parsed_payload
+	if error_response:
+		return error_response, error_status
 
 	# ── Type validation ─────────────────────────────────────────────────────────
 	for field_name, val in [
@@ -306,6 +366,11 @@ def receive_inbound_webhook():
 	if not recipient_email:
 		return jsonify({"error": "Invalid recipient email"}), 400
 
+	verified, verification_error = _verify_inbound_request(recipient_email)
+	if not verified:
+		logger.warning(f"Inbound: verification failed for {recipient_email} from {client_ip}: {verification_error}")
+		return jsonify({"error": verification_error}), 403
+
 	# ── Length limits ───────────────────────────────────────────────────────────
 	subject = subject[:MAX_SUBJECT_LENGTH] if subject else subject
 	text_body = text_body[:MAX_BODY_LENGTH] if text_body else text_body
@@ -322,7 +387,7 @@ def receive_inbound_webhook():
 	result = resolve_recipient_user(recipient_email)
 	if not result:
 		recipient_domain = recipient_email.split('@')[-1].lower() if '@' in recipient_email else ''
-		if recipient_domain not in LOCAL_DOMAINS:
+		if recipient_domain not in _get_local_domains():
 			logger.info(f"Inbound: unknown recipient domain {recipient_email}")
 		else:
 			logger.info(f"Inbound: no local user for {recipient_email}")

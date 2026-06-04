@@ -1,7 +1,7 @@
 ---
 name: local-email
-description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, delivery-status checks, and per-domain outbound relay management. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
-version: 1.2.0
+description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, delivery-status checks, and per-domain outbound relay and webhook-secret management. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
+version: 1.3.0
 metadata:
   openclaw:
     requires:
@@ -75,6 +75,14 @@ python skills/local-email/scripts/mail_api.py domain-set-relay \
 
 # Verify relay credentials
 python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com.au"
+
+# Set a per-domain inbound webhook secret
+python skills/local-email/scripts/mail_api.py domain-set-webhook-secret \
+  --domain "example.com.au" \
+  --secret "replace-with-a-long-random-secret"
+
+# Rotate a per-domain inbound webhook secret
+python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com.au"
 
 # Delete an email
 python skills/local-email/scripts/mail_api.py delete --id 880
@@ -170,6 +178,20 @@ python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "exam
 python skills/local-email/scripts/mail_api.py domain-delete-relay --domain "example.com.au"
 ```
 
+### domain-set-webhook-secret — Set a per-domain inbound webhook secret
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-set-webhook-secret \
+  --domain "example.com.au" \
+  --secret "replace-with-a-long-random-secret"
+```
+
+### domain-rotate-webhook-secret — Rotate and return a new inbound webhook secret
+
+```bash
+python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com.au"
+```
+
 ### delete — Delete an email
 
 ```bash
@@ -212,4 +234,5 @@ See `references/api.md` for the full endpoint documentation.
 - Inbound webhook (`POST /inbound`) requires no auth — called by SMTP2GO/Cloudflare Email Workers
 - Folder IDs can be found via the `folders` command
 - Relay config is managed via the `domains`, `domain-set-relay`, and `domain-verify-relay` commands
+- Per-domain inbound auth is managed via `domain-set-webhook-secret` and `domain-rotate-webhook-secret`
 - Do not print secrets, passwords, bearer tokens, or API keys into chat unless the user explicitly asks

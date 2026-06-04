@@ -7,9 +7,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['TESTING'] = 'true'
 os.environ['DATABASE_URL'] = 'postgresql://postgres:1234@localhost:5432/mail_server_test'
 os.environ['JWT_SECRET'] = 'test-secret-key'
+os.environ['SMTP2GO_WEBHOOK_SECRET'] = ''
 
 from app import create_app
-from app.db import get_db_connection
+from app.db import get_db_connection, seed_local_domains
 
 
 @pytest.fixture
@@ -42,6 +43,7 @@ def db():
 	# Note: We don't delete users here because auth_headers fixture needs them
 	
 	conn.commit()
+	seed_local_domains()
 	cursor.close()
 	conn.close()
 	

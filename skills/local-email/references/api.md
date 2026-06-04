@@ -100,6 +100,8 @@ Content-Type: application/json
 | `PUT` | `/api/domains/{domain}/relay` | Set or update relay credentials |
 | `POST` | `/api/domains/{domain}/relay/verify` | Verify relay credentials by TLS/login |
 | `DELETE` | `/api/domains/{domain}/relay` | Remove relay credentials |
+| `PUT` | `/api/domains/{domain}/webhook-secret` | Set a per-domain inbound webhook secret |
+| `POST` | `/api/domains/{domain}/webhook-secret/rotate` | Rotate and return a new webhook secret |
 
 ### Inbound Webhook (no auth required)
 
@@ -108,6 +110,8 @@ Content-Type: application/json
 | `POST` | `/inbound` | Receive inbound email from SMTP2GO/Cloudflare |
 
 **Inbound webhook fields:** `from` (or `from_address`/`sender`), `to` (or `rcpt`/`recipient`), `subject` (or `subjects`), `text` (or `body`), `html`, `sender_ip` (or `srchost`), `mail` (or `raw_email` for Base64-encoded MIME). Supports `application/x-www-form-urlencoded`, `multipart/form-data`, and `application/json`.
+
+**Inbound webhook auth:** Use either `X-Webhook-Secret: <plaintext-secret>` for per-domain verification or the legacy `X-SMTP2GO-Signature` HMAC header when a global `SMTP2GO_WEBHOOK_SECRET` is configured.
 
 ## Move Email Example
 
@@ -155,6 +159,16 @@ curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/relay \
 # Verify relay credentials
 curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/relay/verify \
   -H "Authorization: Bearer <token>"
+
+# Set a per-domain inbound webhook secret
+curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"webhook_secret": "replace-with-a-long-random-secret"}'
+
+# Rotate a per-domain inbound webhook secret
+curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret/rotate \
+  -H "Authorization: Bearer <token>"
 ```
 
 ## Environment Variables
@@ -176,3 +190,5 @@ curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/relay/verify \
 - Base64-encoded MIME content in `raw_email`/`mail` fields is auto-decoded
 - When `text`/`html` are empty, body content is extracted from raw MIME
 - Relay config is selected by sender domain and only used after `POST /api/domains/{domain}/relay/verify` succeeds
+- Per-domain webhook secrets are stored hashed at rest in `domains.webhook_secret`
+- `POST /api/domains/{domain}/webhook-secret/rotate` returns the new plaintext secret once; save it immediately

@@ -177,6 +177,8 @@ CREATE TABLE domains (
 	relay_from_address VARCHAR(255),
 	relay_verified BOOLEAN DEFAULT FALSE,
 	relay_verified_at TIMESTAMP WITH TIME ZONE,
+	webhook_secret VARCHAR(500),
+	webhook_secret_updated_at TIMESTAMP WITH TIME ZONE,
 	spf_verified BOOLEAN DEFAULT FALSE,
 	dkim_verified BOOLEAN DEFAULT FALSE,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
