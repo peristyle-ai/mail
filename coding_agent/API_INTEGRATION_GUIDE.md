@@ -183,6 +183,34 @@ curl -X DELETE http://192.168.4.41:5003/api/domains/example.com.au/relay \
   -H "Authorization: Bearer <token>"
 ```
 
+**Set domain webhook secret**:
+```bash
+curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "webhook_secret": "replace-with-a-long-random-secret"
+  }'
+```
+
+**Rotate domain webhook secret**:
+```bash
+curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret/rotate \
+  -H "Authorization: Bearer <token>"
+```
+
+**Inbound auth with per-domain secret**:
+```bash
+curl -X POST http://192.168.4.41:5003/inbound \
+  -H "X-Webhook-Secret: replace-with-the-plaintext-secret" \
+  -F "from=sender@example.com" \
+  -F "to=support@example.com.au" \
+  -F "subject=Inbound test" \
+  -F "text=Hello"
+```
+
+The server stores only a hash in `domains.webhook_secret`. Legacy `X-SMTP2GO-Signature` HMAC verification still works as a fallback for existing integrations.
+
 ### Send Email with Embedded Images (MIME)
 
 **Endpoint**: `POST /api/emails/mime`

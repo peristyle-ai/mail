@@ -8,6 +8,7 @@ import pytest
 import time
 
 from app.db import get_db_connection
+from app.utils.webhooks import hash_webhook_secret
 
 
 LOCAL_DOMAINS = [
@@ -482,7 +483,7 @@ class TestInboundRateLimiting:
 
 
 class TestInboundSMTP2GOSignature:
-	"""SMTP2GO HMAC signature verification tests"""
+	"""SMTP2GO HMAC signature verification fallback tests"""
 
 	def test_no_secret_passes(self, inbound_client, local_user):
 		"""Test that without SMTP2GO_WEBHOOK_SECRET, all requests pass"""
@@ -500,6 +501,58 @@ class TestInboundSMTP2GOSignature:
 			assert response.get_json()['status'] == 'received'
 		finally:
 			inbound_module.SMTP2GO_WEBHOOK_SECRET = original
+
+
+class TestInboundDomainWebhookSecret:
+	"""Per-domain webhook secret verification tests."""
+
+	def test_valid_domain_webhook_secret_passes(self, inbound_client, local_user, db):
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''UPDATE domains
+			   SET webhook_secret = %s,
+			       webhook_secret_updated_at = NOW()
+			   WHERE domain = %s''',
+			(hash_webhook_secret('domain-secret-123456'), 'example.com.au')
+		)
+		conn.commit()
+		cursor.close()
+		conn.close()
+
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Domain Secret',
+			'text': 'Hello'
+		}, headers={'X-Webhook-Secret': 'domain-secret-123456'})
+
+		assert response.status_code == 200
+		assert response.get_json()['status'] == 'received'
+
+	def test_invalid_domain_webhook_secret_rejected(self, inbound_client, local_user, db):
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''UPDATE domains
+			   SET webhook_secret = %s,
+			       webhook_secret_updated_at = NOW()
+			   WHERE domain = %s''',
+			(hash_webhook_secret('domain-secret-123456'), 'example.com.au')
+		)
+		conn.commit()
+		cursor.close()
+		conn.close()
+
+		response = inbound_client.post('/inbound', data={
+			'from': 'user@example.com',
+			'to': 'inbound_test@example.com.au',
+			'subject': 'Bad Domain Secret',
+			'text': 'Hello'
+		}, headers={'X-Webhook-Secret': 'wrong-secret'})
+
+		assert response.status_code == 403
+		assert 'Invalid webhook secret' in response.get_json()['error']
 
 	def test_valid_signature_passes(self, inbound_client, local_user):
 		"""Test that valid HMAC signature is accepted"""

@@ -318,6 +318,23 @@ Checks TLS connection and SMTP login without sending a message. Successful verif
 #### Remove Domain Relay Settings
 **Endpoint**: `DELETE /api/domains/<domain>/relay`
 
+#### Set Domain Webhook Secret
+**Endpoint**: `PUT /api/domains/<domain>/webhook-secret`
+
+Stores only a hash of the provided secret in `domains.webhook_secret`.
+
+**Request**:
+```json
+{
+  "webhook_secret": "replace-with-a-long-random-secret"
+}
+```
+
+#### Rotate Domain Webhook Secret
+**Endpoint**: `POST /api/domains/<domain>/webhook-secret/rotate`
+
+Generates a new random plaintext secret, stores only its hash, and returns the plaintext once.
+
 ---
 
 ### Email Delivery Status (NEW)
@@ -717,7 +734,9 @@ curl -X POST http://192.168.4.41:5003/inbound \
 - **Header injection prevention**: CR/LF stripped from all header fields
 - **Payload size limits**: 50MB max (Flask `MAX_CONTENT_LENGTH` + Werkzeug `max_form_memory_size`), subject 500 chars, body 5MB
 - **Sender blocklist**: Checked before storing; returns `{"status": "blocked"}`
-- **SMTP2GO signature verification**: Set `SMTP2GO_WEBHOOK_SECRET` env var to enable HMAC-SHA256 verification of the `X-SMTP2GO-Signature` header
+- **Per-domain webhook secret**: Configure `domains.webhook_secret` via the Domains API and send `X-Webhook-Secret: <plaintext-secret>` on inbound requests. The server stores only a hash at rest.
+- **Legacy SMTP2GO signature verification**: Set `SMTP2GO_WEBHOOK_SECRET` env var to enable HMAC-SHA256 verification of the `X-SMTP2GO-Signature` header.
+- **Compatibility fallback**: If a per-domain webhook secret exists but `X-Webhook-Secret` is absent, the server still accepts the legacy global `X-SMTP2GO-Signature` flow.
 - **Attachment safety**: Filenames sanitized, individual attachment size limit 25MB, stored to disk with DB metadata
 - **SQL injection**: All queries use parameterized inputs
 - **String sanitization**: Null bytes removed from all stored content

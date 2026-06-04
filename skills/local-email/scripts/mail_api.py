@@ -297,6 +297,29 @@ def cmd_domain_delete_relay(args: argparse.Namespace, env: dict[str, str]) -> No
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def cmd_domain_set_webhook_secret(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}/webhook-secret",
+		method="PUT",
+		token=token,
+		payload={"webhook_secret": args.secret},
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_domain_rotate_webhook_secret(args: argparse.Namespace, env: dict[str, str]) -> None:
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	payload = request_json(
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/domains/{args.domain}/webhook-secret/rotate",
+		method="POST",
+		token=token,
+	)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
 # ── CLI parser ───────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -378,6 +401,15 @@ def build_parser() -> argparse.ArgumentParser:
 	p = sub.add_parser("domain-delete-relay", help="Remove relay config from a domain")
 	p.add_argument("--domain", required=True, help="Domain name")
 	p.set_defaults(func=cmd_domain_delete_relay)
+
+	p = sub.add_parser("domain-set-webhook-secret", help="Set webhook secret for a domain")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.add_argument("--secret", required=True, help="Plaintext webhook secret")
+	p.set_defaults(func=cmd_domain_set_webhook_secret)
+
+	p = sub.add_parser("domain-rotate-webhook-secret", help="Rotate webhook secret for a domain")
+	p.add_argument("--domain", required=True, help="Domain name")
+	p.set_defaults(func=cmd_domain_rotate_webhook_secret)
 
 	p = sub.add_parser("login", help="Test mailbox authentication")
 	p.set_defaults(func=cmd_login)

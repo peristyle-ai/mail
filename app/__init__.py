@@ -10,12 +10,13 @@ from app.routes.attachments import bp as attachments_bp
 from app.routes.blacklist import bp as blacklist_bp
 from app.routes.domains import bp as domains_bp
 from app.routes.inbound import inbound_bp
-from app.db import ensure_attachments_schema, ensure_domains_table
+from app.db import ensure_attachments_schema, ensure_domains_table, seed_local_domains
 
 def create_app():
 	app = Flask(__name__)
 	ensure_attachments_schema()
 	ensure_domains_table()
+	seed_local_domains()
 	
 	app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 	app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # 50MB max form field size

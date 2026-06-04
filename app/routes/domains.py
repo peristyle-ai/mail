@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
+from app.utils.webhooks import generate_webhook_secret, hash_webhook_secret
 from ..db import get_db_connection, ensure_domains_table
 from smtp_server.outbound.smtp2go_delivery import SMTP2GODelivery
 import re
@@ -30,9 +31,12 @@ def domain_to_dict(row):
 		'relay_from_address': row['relay_from_address'],
 		'relay_verified': row['relay_verified'],
 		'relay_verified_at': row['relay_verified_at'],
+		'has_webhook_secret': bool(row['webhook_secret']),
+		'webhook_secret_updated_at': row['webhook_secret_updated_at'],
 		'spf_verified': row['spf_verified'],
 		'dkim_verified': row['dkim_verified'],
 		'has_password': bool(row['relay_password_encrypted']),
+		'has_relay_password': bool(row['relay_password_encrypted']),
 		'created_at': row['created_at'],
 		'updated_at': row['updated_at'],
 	}
@@ -61,7 +65,8 @@ def list_domains():
 		cursor.execute(
 			'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at
 			   FROM domains
 			   ORDER BY domain'''
@@ -102,7 +107,8 @@ def get_domain(domain):
 		cursor.execute(
 			'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at
 			   FROM domains WHERE domain = %s''',
 			(domain_name,)
@@ -183,7 +189,8 @@ def set_domain_relay(domain):
 			   updated_at = CURRENT_TIMESTAMP
 			   RETURNING id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at''',
 			(domain_name, provider, host, port, username, password, from_address or None)
 		)
@@ -229,7 +236,8 @@ def verify_domain_relay(domain):
 		cursor.execute(
 			'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at
 			   FROM domains WHERE domain = %s''',
 			(domain_name,)
@@ -263,7 +271,8 @@ def verify_domain_relay(domain):
 		cursor.execute(
 			'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at
 			   FROM domains WHERE domain = %s''',
 			(domain_name,)
@@ -319,7 +328,8 @@ def delete_domain_relay(domain):
 			   WHERE domain = %s
 			   RETURNING id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
-			   relay_verified, relay_verified_at, spf_verified, dkim_verified,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified,
 			   created_at, updated_at''',
 			(domain_name,)
 		)
@@ -330,6 +340,118 @@ def delete_domain_relay(domain):
 		return jsonify({
 			'success': True,
 			'message': 'Relay credentials removed',
+			'domain': domain_to_dict(row)
+		})
+	finally:
+		cursor.close()
+		conn.close()
+
+@bp.route('/api/domains/<domain>/webhook-secret', methods=['PUT'])
+@token_required
+def set_domain_webhook_secret(domain):
+	"""
+	Set a webhook secret for a domain
+	---
+	tags:
+	  - Domains
+	security:
+	  - Bearer: []
+	responses:
+	  200:
+	    description: Webhook secret saved
+	  400:
+	    description: Invalid request
+	  401:
+	    description: Unauthorized
+	"""
+	ensure_domains_table()
+	domain_name = normalize_domain(domain)
+	if not domain_name:
+		return jsonify({'error': 'Invalid domain'}), 400
+
+	data = request.get_json() or {}
+	webhook_secret = (data.get('webhook_secret') or '').strip()
+	if len(webhook_secret) < 16:
+		return jsonify({'error': 'webhook_secret must be at least 16 characters'}), 400
+
+	secret_hash = hash_webhook_secret(webhook_secret)
+
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	try:
+		cursor.execute(
+			'''INSERT INTO domains (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			   ON CONFLICT (domain) DO UPDATE SET
+			   webhook_secret = EXCLUDED.webhook_secret,
+			   webhook_secret_updated_at = CURRENT_TIMESTAMP,
+			   updated_at = CURRENT_TIMESTAMP
+			   RETURNING id, domain, relay_provider, relay_host, relay_port,
+			   relay_username, relay_password_encrypted, relay_from_address,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified, created_at, updated_at''',
+			(domain_name, secret_hash)
+		)
+		row = cursor.fetchone()
+		conn.commit()
+		return jsonify({
+			'success': True,
+			'message': 'Webhook secret saved',
+			'domain': domain_to_dict(row)
+		})
+	finally:
+		cursor.close()
+		conn.close()
+
+
+@bp.route('/api/domains/<domain>/webhook-secret/rotate', methods=['POST'])
+@token_required
+def rotate_domain_webhook_secret(domain):
+	"""
+	Rotate a domain webhook secret and return the new plaintext once
+	---
+	tags:
+	  - Domains
+	security:
+	  - Bearer: []
+	responses:
+	  200:
+	    description: Webhook secret rotated
+	  400:
+	    description: Invalid domain
+	  401:
+	    description: Unauthorized
+	"""
+	ensure_domains_table()
+	domain_name = normalize_domain(domain)
+	if not domain_name:
+		return jsonify({'error': 'Invalid domain'}), 400
+
+	plaintext_secret = generate_webhook_secret()
+	secret_hash = hash_webhook_secret(plaintext_secret)
+
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	try:
+		cursor.execute(
+			'''INSERT INTO domains (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			   ON CONFLICT (domain) DO UPDATE SET
+			   webhook_secret = EXCLUDED.webhook_secret,
+			   webhook_secret_updated_at = CURRENT_TIMESTAMP,
+			   updated_at = CURRENT_TIMESTAMP
+			   RETURNING id, domain, relay_provider, relay_host, relay_port,
+			   relay_username, relay_password_encrypted, relay_from_address,
+			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
+			   spf_verified, dkim_verified, created_at, updated_at''',
+			(domain_name, secret_hash)
+		)
+		row = cursor.fetchone()
+		conn.commit()
+		return jsonify({
+			'success': True,
+			'message': 'Webhook secret rotated. Save it now; it is not stored in plaintext.',
+			'webhook_secret': plaintext_secret,
 			'domain': domain_to_dict(row)
 		})
 	finally:
