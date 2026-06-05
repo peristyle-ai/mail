@@ -203,7 +203,7 @@ class OutboundQueueProcessor:
 			
 			# Get email content
 			cursor.execute(
-				'''SELECT sender_id, subject, body, headers 
+				'''SELECT sender_id, subject, body, raw_email, headers 
 				   FROM emails WHERE id = %s''',
 				(email_id,)
 			)
@@ -283,16 +283,28 @@ class OutboundQueueProcessor:
 			import uuid
 			import re
 			from email import message_from_string
+			from email.policy import default
 			
 			body = email_row['body'] or ''
+			raw_email = email_row['raw_email'] or ''
 			
-			# Check if body is already a complete MIME message
-			# If it starts with "Content-Type:", it's likely a MIME message
-			if body.strip().startswith('Content-Type:'):
+			# Prefer the stored raw email so multipart MIME messages keep attachments.
+			mime_source = ''
+			for source in (raw_email, body):
+				stripped = source.lstrip()
+				if stripped and ('\n\n' in source or '\r\n\r\n' in source):
+					if any(stripped.startswith(prefix) for prefix in (
+						'Content-Type:', 'Subject:', 'From:', 'To:',
+						'Date:', 'Message-ID:', 'MIME-Version:'
+					)):
+						mime_source = source
+						break
+
+			if mime_source:
 				# Parse the stored MIME content
 				logger.info(f"Using stored MIME content for email {email_id}")
 				try:
-					msg = message_from_string(body)
+					msg = message_from_string(mime_source, policy=default)
 					
 					# Update From header (use del + add since replace_header may fail)
 					if msg.get('From'):
