@@ -91,6 +91,18 @@ def request_json(
 	return json.loads(body) if body else None
 
 
+def normalize_to_addresses(values: list[str] | None, default: str) -> list[str]:
+	"""Normalize repeated and comma-separated --to values."""
+	items = values or ([] if not default else [default])
+	result = []
+	for item in items:
+		for address in item.split(','):
+			address = address.strip()
+			if address:
+				result.append(address)
+	return result
+
+
 def login(base_url: str, email: str, password: str) -> str:
 	"""Authenticate and return a session token."""
 	data = request_json(
@@ -158,14 +170,15 @@ def cmd_search(args: argparse.Namespace, env: dict[str, str]) -> None:
 def cmd_send(args: argparse.Namespace, env: dict[str, str]) -> None:
 	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
 	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
-	to = args.to or env.get("EMAIL_TO", "")
-	if not to:
+	to_addresses = normalize_to_addresses(args.to, env.get("EMAIL_TO", ""))
+	if not to_addresses:
 		raise SystemExit("Error: --to is required when EMAIL_TO is not set")
+	to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
 	payload = request_json(
 		f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails",
 		method="POST",
 		token=token,
-		payload={"to": to, "subject": args.subject, "body": args.body},
+		payload={"to": to_payload, "subject": args.subject, "body": args.body},
 	)
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -348,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
 	p.set_defaults(func=cmd_search)
 
 	p = sub.add_parser("send", help="Send an email")
-	p.add_argument("--to", metavar="ADDR", default=None, help="Recipient (default: EMAIL_TO from env)")
+	p.add_argument("--to", metavar="ADDR", action="append", default=None, help="Recipient; repeat or comma-separate for multiple")
 	p.add_argument("--subject", required=True, help="Subject line")
 	p.add_argument("--body", required=True, help="Email body")
 	p.set_defaults(func=cmd_send)
