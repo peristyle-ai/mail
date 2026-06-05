@@ -189,6 +189,9 @@ def create_email():
 	    description: Unauthorized
 	"""
 	data = request.get_json()
+	if not data or 'to' not in data:
+		return jsonify({'error': 'to is required'}), 400
+
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
@@ -203,135 +206,57 @@ def create_email():
 	
 	# Handle recipients
 	recipients = data.get('to')
-	local_recipients = []
-	external_recipients = []
-	
-	if recipients:
-		if isinstance(recipients, str):
-			recipients = [recipients]
-		for recipient_email in recipients:
-			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (recipient_email,))
-			recipient_user = cursor.fetchone()
-			if recipient_user:
-				local_recipients.append((recipient_email, recipient_user['id']))
-			else:
-				external_recipients.append(recipient_email)
-	
-	# For external-only emails, use queue_outbound_email directly
-	# This creates email in Sent folder and queues for delivery
-	if external_recipients and not local_recipients:
+	if isinstance(recipients, str):
+		recipients = [recipients]
+	elif not isinstance(recipients, list):
 		cursor.close()
 		conn.close()
-		
-		from email.message import EmailMessage as EM
-		from smtp_server.outbound.storage import queue_outbound_email
-		
-		msg = EM()
-		msg['Subject'] = data.get('subject', '')
-		msg['From'] = from_address
-		if external_recipients:
-			msg['To'] = ', '.join(external_recipients)
-		msg.set_content(data.get('body', ''))
-		
-		try:
-			email_id, queue_ids = queue_outbound_email(
-				sender_id=request.current_user['id'],
-				from_address=from_address,
-				to_addresses=external_recipients,
-				subject=data.get('subject', ''),
-				body=data.get('body', ''),
-				message=msg,
-				headers=dict(msg.items())
-			)
-			return jsonify({'id': email_id, 'queued': len(queue_ids) > 0}), 201
-		except Exception as e:
-			logger.error(f"Error queueing outbound email: {e}")
-			return jsonify({'error': str(e)}), 500
-	
-	# For local recipients (or mixed), create email in Sent folder
-	# Get or create Sent folder
-	cursor.execute(
-		'SELECT id FROM folders WHERE user_id = %s AND name = %s',
-		(request.current_user['id'], 'Sent')
-	)
-	folder = cursor.fetchone()
-	if folder:
-		folder_id = folder['id']
-	else:
-		cursor.execute(
-			'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
-			(request.current_user['id'], 'Sent')
-		)
-		folder_id = cursor.fetchone()['id']
-	
-	# Determine recipient_id: first local recipient or None
-	recipient_id = local_recipients[0][1] if local_recipients else None
-	
-	cursor.execute(
-		'INSERT INTO emails (sender_id, recipient_id, subject, body, folder_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-		(request.current_user['id'], recipient_id, data.get('subject'), data.get('body'), folder_id)
-	)
-	email_id = cursor.fetchone()['id']
-	
-	# Add local recipients and create copies in their inboxes
-	for recipient_email, recipient_id in local_recipients:
-		# Skip creating Inbox copy when sender is the same as recipient
-		if recipient_id == request.current_user['id']:
-			continue
+		return jsonify({'error': 'to must be a string or array of strings'}), 400
 
-		cursor.execute(
-			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
-			(email_id, recipient_id, 'to')
-		)
-		
-		# Get or create recipient's Inbox folder
-		cursor.execute(
-			'SELECT id FROM folders WHERE user_id = %s AND name = %s',
-			(recipient_id, 'Inbox')
-		)
-		inbox = cursor.fetchone()
-		if not inbox:
-			cursor.execute(
-				'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
-				(recipient_id, 'Inbox')
-			)
-			inbox = cursor.fetchone()
-		
-		# Create copy in recipient's Inbox
-		cursor.execute(
-			'INSERT INTO emails (sender_id, recipient_id, subject, body, folder_id) VALUES (%s, %s, %s, %s, %s)',
-			(request.current_user['id'], recipient_id, data.get('subject'), data.get('body'), inbox['id'])
-		)
-	
-	conn.commit()
+	normalized_recipients = []
+	for recipient_email in recipients:
+		if not isinstance(recipient_email, str):
+			cursor.close()
+			conn.close()
+			return jsonify({'error': 'each recipient in to must be a string'}), 400
+		recipient_email = recipient_email.strip()
+		if not recipient_email:
+			cursor.close()
+			conn.close()
+			return jsonify({'error': 'recipient email cannot be empty'}), 400
+		normalized_recipients.append(recipient_email)
+
+	if not normalized_recipients:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'at least one recipient is required'}), 400
+
 	cursor.close()
 	conn.close()
-	
-	# Queue external recipients if any
-	if external_recipients:
-		from email.message import EmailMessage as EM
-		from smtp_server.outbound.storage import queue_outbound_email
-		
-		msg = EM()
-		msg['Subject'] = data.get('subject', '')
-		msg['From'] = from_address
-		msg['To'] = ', '.join(external_recipients)
-		msg.set_content(data.get('body', ''))
-		
-		try:
-			_, queue_ids = queue_outbound_email(
-				sender_id=request.current_user['id'],
-				from_address=from_address,
-				to_addresses=external_recipients,
-				subject=data.get('subject', ''),
-				body=data.get('body', ''),
-				message=msg,
-				headers=dict(msg.items())
-			)
-		except Exception as e:
-			logger.error(f"Error queueing outbound email: {e}")
-	
-	return jsonify({'id': email_id}), 201
+
+	from email.message import EmailMessage as EM
+	from smtp_server.outbound.storage import queue_outbound_email
+
+	msg = EM()
+	msg['Subject'] = data.get('subject', '')
+	msg['From'] = from_address
+	msg['To'] = ', '.join(normalized_recipients)
+	msg.set_content(data.get('body', ''))
+
+	try:
+		email_id, queue_ids = queue_outbound_email(
+			sender_id=request.current_user['id'],
+			from_address=from_address,
+			to_addresses=normalized_recipients,
+			subject=data.get('subject', ''),
+			body=data.get('body', ''),
+			message=msg,
+			headers=dict(msg.items())
+		)
+		return jsonify({'id': email_id, 'queued': len(queue_ids) > 0}), 201
+	except Exception as e:
+		logger.error(f"Error queueing outbound email: {e}")
+		return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/emails/mime', methods=['POST'])
 @token_required

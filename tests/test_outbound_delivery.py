@@ -347,3 +347,57 @@ class TestOutboundDelivery:
 		
 		cursor.close()
 		conn.close()
+
+	def test_mixed_local_and_external_recipients_use_single_sent_email(self, client, auth_headers, db):
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute("SELECT id FROM users WHERE email = 'test@example.com'")
+		sender = cursor.fetchone()
+		cursor.execute(
+			'''INSERT INTO users (email, password_hash, name, is_local)
+			   VALUES (%s, %s, %s, %s)
+			   RETURNING id''',
+			('localrecipient@example.com', 'hash', 'Local Recipient', True)
+		)
+		local_user = cursor.fetchone()
+		cursor.execute(
+			'''INSERT INTO folders (user_id, name)
+			   VALUES (%s, %s)
+			   ON CONFLICT (user_id, name) DO NOTHING''',
+			(local_user['id'], 'Inbox')
+		)
+		conn.commit()
+		cursor.close()
+		conn.close()
+
+		response = client.post('/api/emails', headers=auth_headers, json={
+			'to': ['localrecipient@example.com', 'user@example.com'],
+			'subject': 'Mixed recipients',
+			'body': 'Mixed delivery body'
+		})
+
+		assert response.status_code == 201
+		data = response.get_json()
+		email_id = data['id']
+		assert data['queued'] is True
+
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute('SELECT COUNT(*) AS count FROM emails WHERE subject = %s', ('Mixed recipients',))
+		email_count = cursor.fetchone()['count']
+		cursor.execute('SELECT COUNT(*) AS count FROM outbound_queue WHERE email_id = %s', (email_id,))
+		queue_count = cursor.fetchone()['count']
+		cursor.execute(
+			'''SELECT COUNT(*) AS count
+			   FROM emails e
+			   JOIN folders f ON e.folder_id = f.id
+			   WHERE e.subject = %s AND f.user_id = %s AND f.name = %s''',
+			('Mixed recipients', sender['id'], 'Sent')
+		)
+		sent_count = cursor.fetchone()['count']
+		cursor.close()
+		conn.close()
+
+		assert email_count == 2
+		assert sent_count == 1
+		assert queue_count == 1

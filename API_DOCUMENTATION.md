@@ -152,6 +152,17 @@ curl -X POST http://192.168.4.41:5003/api/emails \
   }'
 ```
 
+`to` may be either a single string or an array of recipient email addresses.
+
+**Multiple recipients example**:
+```json
+{
+  "to": ["user1@example.com", "user@example.com"],
+  "subject": "Subject",
+  "body": "Email body"
+}
+```
+
 **Successful Response**:
 ```json
 {

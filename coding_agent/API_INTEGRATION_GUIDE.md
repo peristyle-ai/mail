@@ -84,6 +84,19 @@ curl -X POST http://192.168.4.41:5003/api/emails \
   }'
 ```
 
+`to` can be a single email string or an array of recipients. Example:
+
+```bash
+curl -X POST http://192.168.4.41:5003/api/emails \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": ["payroll@example.com", "hello@example.com"],
+    "subject": "Group Email",
+    "body": "This goes to multiple recipients"
+  }'
+```
+
 **Successful Response**:
 ```json
 {

@@ -56,6 +56,13 @@ python skills/local-email/scripts/mail_api.py send \
   --subject "Hello" \
   --body "Message text"
 
+# Send to multiple recipients
+python skills/local-email/scripts/mail_api.py send \
+  --to "user1@example.com" \
+  --to "user@example.com" \
+  --subject "Hello" \
+  --body "Message text"
+
 # Move email to a different folder
 python skills/local-email/scripts/mail_api.py move --id 880 --folder-id 137
 
@@ -127,6 +134,12 @@ python skills/local-email/scripts/mail_api.py read --id 880
 ```bash
 python skills/local-email/scripts/mail_api.py send \
   --to "recipient@example.com" \
+  --subject "Subject line" \
+  --body "Email body text"
+
+python skills/local-email/scripts/mail_api.py send \
+  --to "user1@example.com" \
+  --to "user@example.com" \
   --subject "Subject line" \
   --body "Email body text"
 ```

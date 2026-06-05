@@ -46,7 +46,7 @@ Content-Type: application/json
 |--------|-------|-------------|
 | `GET` | `/api/emails` | List emails (optional `?folder=Inbox`, `?sent=true`) |
 | `GET` | `/api/emails/{id}` | Read one email by ID |
-| `POST` | `/api/emails` | Send a plain text email |
+| `POST` | `/api/emails` | Send a plain text email to one or more recipients |
 | `POST` | `/api/emails/mime` | Send a MIME email (multipart/attachments) |
 | `DELETE` | `/api/emails/{id}` | Delete an email |
 | `POST` | `/api/emails/{id}/read` | Mark email as read |
@@ -120,6 +120,19 @@ curl -X POST http://192.168.4.41:5003/api/emails/123/move \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"folder_id": 137}'
+```
+
+## Multiple Recipient Send Example
+
+```bash
+curl -X POST http://192.168.4.41:5003/api/emails \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": ["user1@example.com", "user@example.com"],
+    "subject": "Group Email",
+    "body": "Hello everyone"
+  }'
 ```
 
 ## Folder Operations Example
