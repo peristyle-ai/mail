@@ -1,7 +1,7 @@
 ---
 name: local-email
 description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, delivery-status checks, and per-domain outbound relay and webhook-secret management. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
-version: 1.3.0
+version: 1.4.0
 metadata:
   openclaw:
     requires:
@@ -143,6 +143,58 @@ python skills/local-email/scripts/mail_api.py send \
   --subject "Subject line" \
   --body "Email body text"
 ```
+
+#### Send with attachments (PDF, image, etc.)
+
+When `--attachment` is provided the email is sent as a multipart MIME message
+via the `/api/emails/mime` endpoint. Repeat `--attachment` for multiple files.
+
+```bash
+python skills/local-email/scripts/mail_api.py send \
+  --to "customer@example.com" \
+  --from-addr "payroll@example.com" \
+  --subject "Invoice INV-12345" \
+  --body "Please find the invoice attached." \
+  --attachment "./invoice.pdf"
+```
+
+When using attachments, `--from-addr` is required so the server stamps the
+correct sender (defaults to `EMAIL_ADDRESS` otherwise).
+
+#### Send a prebuilt MIME message from a file
+
+For full control over the MIME structure (e.g. when you've already built a
+`message/rfc822` blob with `email.mime.*`), use `send-mime`:
+
+```bash
+python skills/local-email/scripts/mail_api.py send-mime \
+  --to "customer@example.com" \
+  --from-addr "payroll@example.com" \
+  --subject "Invoice INV-12345" \
+  --mime-file "./message.eml"
+```
+
+**Encoding note (important):** the `/api/emails/mime` endpoint expects the
+`mime_content` field to contain a **complete RFC 822 message** as a JSON
+string. Encode raw bytes via `.decode("latin-1")` (not base64) — the server
+parses the message directly. The CLI handles this automatically; only relevant
+if you're calling the API from your own code.
+
+### send-mime — Send a prebuilt RFC 822 MIME message
+
+For full control over the MIME structure (e.g. you built a `message/rfc822`
+blob with `email.mime.*` in your own code), use `send-mime`:
+
+```bash
+python skills/local-email/scripts/mail_api.py send-mime \
+  --to "recipient@example.com" \
+  --from-addr "payroll@example.com" \
+  --subject "Invoice INV-12345" \
+  --mime-file "./message.eml"
+```
+
+The `--subject` and `--from-addr` are used for envelope/sender metadata; they
+are NOT added to the MIME body — that comes from the file.
 
 ### move — Move an email to a different folder
 

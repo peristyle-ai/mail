@@ -167,18 +167,131 @@ def cmd_search(args: argparse.Namespace, env: dict[str, str]) -> None:
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def _build_mime_with_attachments(
+	from_addr: str,
+	to_addrs: list[str],
+	subject: str,
+	body: str,
+	attachments: list[Path] | None,
+	html: str | None = None,
+) -> bytes:
+	"""Build a multipart/mixed MIME message for the /api/emails/mime endpoint.
+
+	The mail server's /api/emails/mime endpoint expects a complete RFC 822
+	message (multipart/mixed, headers + body) delivered as the `mime_content`
+	JSON field. The server does NOT base64-decode the field — it expects the
+	raw message bytes encoded as a JSON string (use latin-1 round-trip to
+	preserve all 0x00-0xFF bytes through JSON's UTF-8 envelope).
+	"""
+	from email.mime.multipart import MIMEMultipart
+	from email.mime.text import MIMEText
+	from email.mime.application import MIMEApplication
+
+	msg = MIMEMultipart()
+	msg["From"] = from_addr
+	# Use comma-joined form for multiple recipients in the To header
+	msg["To"] = ", ".join(to_addrs)
+	msg["Subject"] = subject
+
+	if html is not None:
+		# multipart/alternative: text + html
+		alt = MIMEMultipart("alternative")
+		alt.attach(MIMEText(body, "plain", "utf-8"))
+		alt.attach(MIMEText(html, "html", "utf-8"))
+		msg.attach(alt)
+	else:
+		msg.attach(MIMEText(body, "plain", "utf-8"))
+
+	for path in attachments or []:
+		data = path.read_bytes()
+		subtype = "octet-stream"
+		if path.suffix.lower() == ".pdf":
+			subtype = "pdf"
+		elif path.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif"):
+			subtype = path.suffix.lower().lstrip(".")
+		att = MIMEApplication(data, _subtype=subtype, Name=path.name)
+		att.add_header("Content-Disposition", "attachment", filename=path.name)
+		msg.attach(att)
+
+	return msg.as_bytes()
+
+
 def cmd_send(args: argparse.Namespace, env: dict[str, str]) -> None:
 	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
 	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
 	to_addresses = normalize_to_addresses(args.to, env.get("EMAIL_TO", ""))
 	if not to_addresses:
 		raise SystemExit("Error: --to is required when EMAIL_TO is not set")
-	to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
+
+	attachments = [Path(p) for p in (args.attachment or [])]
+	missing = [str(p) for p in attachments if not p.exists()]
+	if missing:
+		raise SystemExit(f"Error: attachment file(s) not found: {', '.join(missing)}")
+
+	# If attachments are present, route to /api/emails/mime (the only endpoint
+	# that supports attachments). Otherwise use the simpler /api/emails endpoint.
+	if attachments:
+		from_addr = args.from_addr or env["EMAIL_ADDRESS"]
+		raw_mime = _build_mime_with_attachments(
+			from_addr=from_addr,
+			to_addrs=to_addresses,
+			subject=args.subject,
+			body=args.body,
+			attachments=attachments,
+			html=args.html,
+		)
+		# Critical: encode the raw bytes as a JSON string. JSON is UTF-8, so
+		# latin-1 round-trips 1:1 with bytes (every byte 0x00-0xFF maps to a
+		# valid code point). Do NOT base64 — the server does not base64-decode.
+		mime_str = raw_mime.decode("latin-1")
+		to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
+		payload = request_json(
+			f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails/mime",
+			method="POST",
+			token=token,
+			payload={
+				"to": to_payload,
+				"from": from_addr,
+				"subject": args.subject,
+				"mime_content": mime_str,
+			},
+		)
+	else:
+		to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
+		payload = request_json(
+			f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails",
+			method="POST",
+			token=token,
+			payload={"to": to_payload, "subject": args.subject, "body": args.body},
+		)
+	print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_send_mime(args: argparse.Namespace, env: dict[str, str]) -> None:
+	"""Send a prebuilt MIME message from a file via /api/emails/mime.
+
+	The file must be a complete RFC 822 message (headers + body). The server
+	parses it directly — do NOT base64 encode. The Content-Type of the file
+	does not matter; only the file contents are read.
+	"""
+	require_env_vars(env, "EMAIL_SERVER", "EMAIL_ADDRESS", "EMAIL_PASSWORD")
+	token = login(env["EMAIL_SERVER"], env["EMAIL_ADDRESS"], env["EMAIL_PASSWORD"])
+	mime_path = Path(args.mime_file)
+	if not mime_path.exists():
+		raise SystemExit(f"Error: MIME file not found: {mime_path}")
+	raw = mime_path.read_bytes()
+	# Subject and recipients are still required by the server even when
+	# mime_content is provided (server uses them for envelope/sender metadata).
 	payload = request_json(
-		f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails",
+		f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails/mime",
 		method="POST",
 		token=token,
-		payload={"to": to_payload, "subject": args.subject, "body": args.body},
+		payload={
+			"to": [args.to] if isinstance(args.to, str) else args.to,
+			"from": args.from_addr or env["EMAIL_ADDRESS"],
+			"subject": args.subject,
+			"mime_content": raw.decode("latin-1"),
+		},
 	)
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -360,11 +473,21 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--query", required=True, help="Search query")
 	p.set_defaults(func=cmd_search)
 
-	p = sub.add_parser("send", help="Send an email")
+	p = sub.add_parser("send", help="Send an email (use --attachment to send a MIME message with files)")
 	p.add_argument("--to", metavar="ADDR", action="append", default=None, help="Recipient; repeat or comma-separate for multiple")
+	p.add_argument("--from-addr", metavar="ADDR", dest="from_addr", default=None, help="Sender address (defaults to EMAIL_ADDRESS). Required only when using --attachment.")
 	p.add_argument("--subject", required=True, help="Subject line")
-	p.add_argument("--body", required=True, help="Email body")
+	p.add_argument("--body", required=True, help="Email body (plain text)")
+	p.add_argument("--html", default=None, help="Optional HTML body; when provided the email is sent as multipart/alternative (text + html)")
+	p.add_argument("--attachment", metavar="PATH", dest="attachment", action="append", default=None, help="Path to a file to attach; repeat for multiple. Forces MIME send via /api/emails/mime.")
 	p.set_defaults(func=cmd_send)
+
+	p = sub.add_parser("send-mime", help="Send a prebuilt RFC 822 MIME message from a file")
+	p.add_argument("--to", metavar="ADDR", required=True, help="Recipient address")
+	p.add_argument("--from-addr", metavar="ADDR", dest="from_addr", default=None, help="Sender address (defaults to EMAIL_ADDRESS)")
+	p.add_argument("--subject", required=True, help="Subject line (used for envelope metadata; not added to the MIME body)")
+	p.add_argument("--mime-file", required=True, metavar="PATH", help="Path to a complete RFC 822 / multipart MIME file")
+	p.set_defaults(func=cmd_send_mime)
 
 	p = sub.add_parser("status", help="Check delivery status of a sent email")
 	p.add_argument("--id", required=True, type=int, help="Email ID")
