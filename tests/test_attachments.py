@@ -121,6 +121,88 @@ class TestAttachments:
 		attachments = list_response.get_json()
 		assert len(attachments) == 0
 
+	def test_upload_attachment_mirrors_to_local_inbox_copy(self, client, auth_headers, auth_headers_second_user, db):
+		"""Uploading to a sent email should mirror the attachment to linked local inbox copies."""
+		email_response = client.post('/api/emails',
+			headers=auth_headers,
+			json={'to': 'test2@example.com', 'subject': 'Mirror Attachments', 'body': 'See attached'}
+		)
+		sent_email_id = email_response.get_json()['id']
+
+		data = {'file': (io.BytesIO(b'mirror content'), 'mirror.txt')}
+		response = client.post(
+			f'/api/emails/{sent_email_id}/attachments',
+			headers=auth_headers,
+			data=data,
+			content_type='multipart/form-data'
+		)
+		assert response.status_code == 201
+
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''SELECT e.id, e.source_email_id
+			   FROM emails e
+			   JOIN folders f ON e.folder_id = f.id
+			   WHERE e.subject = %s
+			     AND e.recipient_id = (SELECT id FROM users WHERE email = %s)
+			     AND f.name = %s''',
+			('Mirror Attachments', 'test2@example.com', 'Inbox')
+		)
+		inbox_email = cursor.fetchone()
+		cursor.close()
+		conn.close()
+
+		assert inbox_email['source_email_id'] == sent_email_id
+
+		list_response = client.get(f"/api/emails/{inbox_email['id']}/attachments", headers=auth_headers_second_user)
+		assert list_response.status_code == 200
+		attachments = list_response.get_json()
+		assert len(attachments) == 1
+		assert attachments[0]['filename'] == 'mirror.txt'
+
+	def test_delete_sent_attachment_keeps_mirrored_local_copy_downloadable(self, client, auth_headers, auth_headers_second_user, db):
+		"""Deleting one mirrored attachment must not remove the shared file for other copies."""
+		email_response = client.post('/api/emails',
+			headers=auth_headers,
+			json={'to': 'test2@example.com', 'subject': 'Shared Attachment', 'body': 'See attached'}
+		)
+		sent_email_id = email_response.get_json()['id']
+
+		data = {'file': (io.BytesIO(b'shared content'), 'shared.txt')}
+		upload_response = client.post(
+			f'/api/emails/{sent_email_id}/attachments',
+			headers=auth_headers,
+			data=data,
+			content_type='multipart/form-data'
+		)
+		assert upload_response.status_code == 201
+		sent_attachment_id = upload_response.get_json()['id']
+
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''SELECT e.id AS email_id, a.id AS attachment_id, a.file_path
+			   FROM emails e
+			   JOIN attachments a ON a.email_id = e.id
+			   WHERE e.source_email_id = %s''',
+			(sent_email_id,)
+		)
+		mirrored = cursor.fetchone()
+		cursor.close()
+		conn.close()
+
+		assert mirrored is not None
+		assert os.path.exists(mirrored['file_path'])
+
+		delete_response = client.delete(f"/api/attachments/{sent_attachment_id}", headers=auth_headers)
+		assert delete_response.status_code == 200
+		assert os.path.exists(mirrored['file_path'])
+
+		download_response = client.get(f"/api/attachments/{mirrored['attachment_id']}", headers=auth_headers_second_user)
+		assert download_response.status_code == 200
+		assert download_response.data == b'shared content'
+
 
 class TestAttachmentSecurity:
 	"""Security tests for attachments"""

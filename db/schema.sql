@@ -24,6 +24,7 @@ CREATE TABLE emails (
 	id SERIAL PRIMARY KEY,
 	sender_id INTEGER NOT NULL REFERENCES users(id),
 	recipient_id INTEGER REFERENCES users(id),
+	source_email_id INTEGER REFERENCES emails(id) ON DELETE SET NULL,
 	folder_id INTEGER REFERENCES folders(id),
 	subject VARCHAR(500),
 	body TEXT,
@@ -78,6 +79,7 @@ CREATE TABLE rate_limit_violations (
 -- Indexes for performance
 CREATE INDEX idx_emails_sender ON emails(sender_id);
 CREATE INDEX idx_emails_folder ON emails(folder_id);
+CREATE INDEX idx_emails_source_email_id ON emails(source_email_id);
 CREATE INDEX idx_emails_created ON emails(created_at);
 CREATE INDEX idx_recipients_user ON email_recipients(user_id);
 CREATE INDEX idx_attachments_email ON attachments(email_id);

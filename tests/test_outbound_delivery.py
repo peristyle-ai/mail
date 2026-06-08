@@ -353,6 +353,7 @@ class TestOutboundDelivery:
 		cursor = conn.cursor()
 		cursor.execute("SELECT id FROM users WHERE email = 'test@example.com'")
 		sender = cursor.fetchone()
+		cursor.execute("DELETE FROM users WHERE email = 'localrecipient@example.com'")
 		cursor.execute(
 			'''INSERT INTO users (email, password_hash, name, is_local)
 			   VALUES (%s, %s, %s, %s)
