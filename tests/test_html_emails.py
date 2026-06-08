@@ -163,3 +163,33 @@ class TestHTMLFieldInAPI:
 		
 		assert 'html' not in result
 		assert result['body'] == 'Plain text only'
+
+	def test_format_email_response_extracts_body_from_subject_prefixed_mime(self):
+		"""Test raw RFC 822 messages starting with Subject are decoded for API output."""
+		from app.routes.emails import format_email_response
+		
+		raw_email_body = '''Subject: Test MIME Email
+From: sender@example.com
+To: recipient@example.com
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="boundary123"
+
+--boundary123
+Content-Type: text/plain; charset=utf-8
+
+Plain text from MIME body
+--boundary123
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>HTML from MIME body</p></body></html>
+--boundary123--
+'''
+		email_dict = {
+			'id': 3,
+			'subject': 'Stored subject',
+			'body': raw_email_body,
+		}
+		result = format_email_response(email_dict)
+		
+		assert result['body'] == 'Plain text from MIME body'
+		assert result['html'] == '<html><body><p>HTML from MIME body</p></body></html>'
