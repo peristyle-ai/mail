@@ -28,6 +28,19 @@ def decode_rfc2047(s):
 	except Exception:
 		return s
 
+
+def looks_like_raw_email(content):
+	"""Detect stored RFC 822/MIME content in the body column."""
+	if not content:
+		return False
+	stripped = content.lstrip()
+	if '\n\n' not in content and '\r\n\r\n' not in content:
+		return False
+	return stripped.startswith((
+		'Content-Type:', 'MIME-Version:', 'Subject:', 'From:',
+		'To:', 'Date:', 'Message-ID:', 'Return-Path:', 'Delivered-To:'
+	))
+
 def format_email_response(email_dict):
 	"""Format email dict for API response, mapping body_html to html and adding email addresses."""
 	result = dict(email_dict)
@@ -38,7 +51,7 @@ def format_email_response(email_dict):
 	# Fix body/html that may contain raw MIME instead of extracted content
 	body = result.get('body') or ''
 	html = result.get('html') or result.get('body_html') or ''
-	if body.startswith(('Content-Type:', 'MIME-Version:')):
+	if looks_like_raw_email(body):
 		try:
 			parsed = message_from_string(body)
 			extracted_text, extracted_html = extract_bodies(parsed)
