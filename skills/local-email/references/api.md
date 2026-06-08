@@ -135,6 +135,70 @@ curl -X POST http://192.168.4.41:5003/api/emails \
   }'
 ```
 
+## MIME Send (attachments) Example
+
+Use `/api/emails/mime` to send a multipart message (HTML body, PDF/image
+attachments, custom headers, etc.). The `mime_content` field must contain a
+**complete RFC 822 message** as a JSON string — not base64, not a bare body.
+
+To round-trip raw bytes 1:1 through JSON (which is UTF-8), use latin-1:
+`mime_bytes.decode("latin-1")`. Every byte 0x00-0xFF maps to a valid Unicode
+code point, so JSON will serialize and parse the bytes losslessly. The server
+parses the decoded string as a real RFC 822 message.
+
+Minimal Python example (body + one PDF attachment):
+
+```python
+import base64
+import json
+import urllib.request
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+msg = MIMEMultipart()
+msg["From"] = "payroll@example.com"
+msg["To"] = "customer@example.com"
+msg["Subject"] = "Invoice INV-12345"
+msg.attach(MIMEText("Please find the invoice attached.", "plain", "utf-8"))
+
+with open("./invoice.pdf", "rb") as f:
+    pdf_bytes = f.read()
+att = MIMEApplication(pdf_bytes, _subtype="pdf", Name="invoice.pdf")
+att.add_header("Content-Disposition", "attachment", filename="invoice.pdf")
+msg.attach(att)
+
+raw_mime = msg.as_bytes().decode("latin-1")  # NOT base64
+payload = json.dumps({
+    "to": ["customer@example.com"],
+    "from": "payroll@example.com",
+    "subject": "Invoice INV-12345",
+    "mime_content": raw_mime,
+}).encode("utf-8")
+
+req = urllib.request.Request(
+    "http://192.168.4.41:5003/api/emails/mime",
+    data=payload,
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer <token>",
+    },
+    method="POST",
+)
+with urllib.request.urlopen(req) as resp:
+    print(resp.read().decode())
+```
+
+Common failure modes:
+
+- **400 "mime_content is required"** — you forgot the field, or it's `null`.
+- **400 "Failed to parse MIME message"** — the server could not parse the
+  string as RFC 822. Most often caused by base64-encoding the bytes (the
+  server does not base64-decode) or by sending a bare body without headers.
+- **201 with no delivery** — check that the `From` header in the MIME body
+  matches a real local mailbox (or matches the JWT user); the server may
+  accept the message but fail to assign a sender.
+
 ## Folder Operations Example
 
 ```bash
