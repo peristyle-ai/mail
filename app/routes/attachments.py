@@ -103,6 +103,36 @@ def upload_attachment(email_id):
 	)
 	
 	attachment_id = cursor.fetchone()['id']
+
+	# Mirror the uploaded attachment onto local inbox copies created from the same send.
+	cursor.execute(
+		'''
+		SELECT sibling.id
+		FROM emails source
+		JOIN emails sibling
+		  ON sibling.id != source.id
+		 AND sibling.sender_id = source.sender_id
+		 AND sibling.subject = source.subject
+		 AND sibling.body = source.body
+		 AND COALESCE(sibling.body_html, '') = COALESCE(source.body_html, '')
+		 AND COALESCE(sibling.raw_email, '') = COALESCE(source.raw_email, '')
+		 AND sibling.created_at BETWEEN source.created_at - INTERVAL '1 minute'
+		                           AND source.created_at + INTERVAL '1 minute'
+		JOIN folders sibling_folder ON sibling.folder_id = sibling_folder.id
+		JOIN folders source_folder ON source.folder_id = source_folder.id
+		WHERE source.id = %s
+		  AND source_folder.name = 'Sent'
+		  AND sibling_folder.name = 'Inbox'
+		''',
+		(email_id,)
+	)
+	sibling_email_ids = [row['id'] for row in cursor.fetchall()]
+
+	for sibling_email_id in sibling_email_ids:
+		cursor.execute(
+			'INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path) VALUES (%s, %s, %s, %s, %s)',
+			(sibling_email_id, file.filename, file.content_type, file_size, file_path)
+		)
 	conn.commit()
 	cursor.close()
 	conn.close()
