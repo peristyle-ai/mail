@@ -182,10 +182,10 @@ def queue_outbound_email(
 			# Copy email to recipient's inbox
 			cursor.execute(
 				'''INSERT INTO emails 
-				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
-				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+				   (sender_id, recipient_id, source_email_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
+				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 				   RETURNING id''',
-				(sender_id, recipient_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
+				(sender_id, recipient_id, email_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
 				 datetime.now(timezone.utc), False)
 			)
 			recipient_email_id = cursor.fetchone()['id']

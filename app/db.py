@@ -54,6 +54,26 @@ def ensure_attachments_schema():
 		conn.close()
 
 
+def ensure_email_copy_schema():
+	"""Add linkage from local inbox copies back to the sent email."""
+	lock_id = 872344
+	conn = get_db_connection()
+	cursor = conn.cursor()
+
+	try:
+		cursor.execute('SELECT pg_advisory_lock(%s)', (lock_id,))
+		cursor.execute('ALTER TABLE emails ADD COLUMN IF NOT EXISTS source_email_id INTEGER REFERENCES emails(id) ON DELETE SET NULL')
+		cursor.execute('CREATE INDEX IF NOT EXISTS idx_emails_source_email_id ON emails(source_email_id)')
+		conn.commit()
+	finally:
+		try:
+			cursor.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
+		except Exception:
+			conn.rollback()
+		cursor.close()
+		conn.close()
+
+
 def ensure_domains_table():
 	"""Create the domains table used for outbound relay configuration."""
 	lock_id = 872341

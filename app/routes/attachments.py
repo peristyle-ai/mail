@@ -12,6 +12,7 @@ ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
+_attachments_has_user_id = None
 
 def allowed_file(filename):
 	return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -22,6 +23,40 @@ def get_unique_filename(filename):
 	if extension:
 		unique_name += '.' + extension
 	return unique_name
+
+
+def attachments_has_user_id(cursor):
+	"""Check whether the attachments table still has a legacy user_id column."""
+	global _attachments_has_user_id
+	if _attachments_has_user_id is None:
+		cursor.execute(
+			'''
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public'
+				AND table_name = 'attachments'
+				AND column_name = 'user_id'
+			)
+			'''
+		)
+		_attachments_has_user_id = cursor.fetchone()['exists']
+	return _attachments_has_user_id
+
+
+def insert_attachment_record(cursor, email_id, owner_user_id, file_name, content_type, file_size, file_path):
+	"""Insert an attachment row for either current or legacy schemas."""
+	if attachments_has_user_id(cursor):
+		cursor.execute(
+			'''INSERT INTO attachments (email_id, user_id, file_name, content_type, file_size, file_path)
+			   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
+			(email_id, owner_user_id, file_name, content_type, file_size, file_path)
+		)
+	else:
+		cursor.execute(
+			'''INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path)
+			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
+			(email_id, file_name, content_type, file_size, file_path)
+		)
 
 @bp.route('/api/emails/<int:email_id>/attachments', methods=['POST'])
 @token_required
@@ -81,7 +116,11 @@ def upload_attachment(email_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	cursor.execute(
-		'SELECT e.id FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		'''SELECT e.id, f.name AS folder_name
+		          , f.user_id AS owner_user_id
+		   FROM emails e
+		   JOIN folders f ON e.folder_id = f.id
+		   WHERE e.id = %s AND f.user_id = %s''',
 		(email_id, request.current_user['id'])
 	)
 	email = cursor.fetchone()
@@ -97,42 +136,39 @@ def upload_attachment(email_id):
 	file.save(file_path)
 	file_size = os.path.getsize(file_path)
 	
-	cursor.execute(
-		'INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-		(email_id, file.filename, file.content_type, file_size, file_path)
+	insert_attachment_record(
+		cursor,
+		email_id,
+		email['owner_user_id'],
+		file.filename,
+		file.content_type,
+		file_size,
+		file_path,
 	)
-	
 	attachment_id = cursor.fetchone()['id']
 
 	# Mirror the uploaded attachment onto local inbox copies created from the same send.
-	cursor.execute(
-		'''
-		SELECT sibling.id
-		FROM emails source
-		JOIN emails sibling
-		  ON sibling.id != source.id
-		 AND sibling.sender_id = source.sender_id
-		 AND sibling.subject = source.subject
-		 AND sibling.body = source.body
-		 AND COALESCE(sibling.body_html, '') = COALESCE(source.body_html, '')
-		 AND COALESCE(sibling.raw_email, '') = COALESCE(source.raw_email, '')
-		 AND sibling.created_at BETWEEN source.created_at - INTERVAL '1 minute'
-		                           AND source.created_at + INTERVAL '1 minute'
-		JOIN folders sibling_folder ON sibling.folder_id = sibling_folder.id
-		JOIN folders source_folder ON source.folder_id = source_folder.id
-		WHERE source.id = %s
-		  AND source_folder.name = 'Sent'
-		  AND sibling_folder.name = 'Inbox'
-		''',
-		(email_id,)
-	)
-	sibling_email_ids = [row['id'] for row in cursor.fetchall()]
-
-	for sibling_email_id in sibling_email_ids:
+	if email['folder_name'] == 'Sent':
 		cursor.execute(
-			'INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path) VALUES (%s, %s, %s, %s, %s)',
-			(sibling_email_id, file.filename, file.content_type, file_size, file_path)
+			'''SELECT e.id, f.user_id AS owner_user_id
+			   FROM emails e
+			   JOIN folders f ON e.folder_id = f.id
+			   WHERE e.source_email_id = %s''',
+			(email_id,)
 		)
+		sibling_emails = cursor.fetchall()
+
+		for sibling_email in sibling_emails:
+			insert_attachment_record(
+				cursor,
+				sibling_email['id'],
+				sibling_email['owner_user_id'],
+				file.filename,
+				file.content_type,
+				file_size,
+				file_path,
+			)
+			cursor.fetchone()
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -192,8 +228,14 @@ def list_attachments(email_id):
 	attachments = cursor.fetchall()
 	cursor.close()
 	conn.close()
-	
-	return jsonify([dict(a) for a in attachments])
+
+	results = []
+	for attachment in attachments:
+		item = dict(attachment)
+		item['filename'] = item['file_name']
+		results.append(item)
+
+	return jsonify(results)
 
 @bp.route('/api/attachments/<int:attachment_id>', methods=['GET'])
 @token_required
@@ -309,10 +351,12 @@ def delete_attachment_route(attachment_id):
 		return jsonify({'error': 'Attachment not found'}), 404
 	
 	file_path = attachment['file_path']
-	if file_path and os.path.exists(file_path):
-		os.remove(file_path)
-	
 	cursor.execute('DELETE FROM attachments WHERE id = %s', (attachment_id,))
+	if file_path:
+		cursor.execute('SELECT COUNT(*) AS count FROM attachments WHERE file_path = %s AND id != %s', (file_path, attachment_id))
+		other_refs = cursor.fetchone()['count']
+		if other_refs == 0 and os.path.exists(file_path):
+			os.remove(file_path)
 	conn.commit()
 	cursor.close()
 	conn.close()
