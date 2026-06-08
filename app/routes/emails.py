@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
+from smtp_server.email_storage import extract_bodies
 import logging
 from email import message_from_string
 from email.message import EmailMessage
@@ -10,11 +11,45 @@ bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
 
 
+def decode_rfc2047(s):
+	"""Decode RFC 2047 encoded subject strings."""
+	if not s or '=?' not in s:
+		return s
+	from email.header import decode_header
+	try:
+		parts = decode_header(s)
+		decoded = ''
+		for part, charset in parts:
+			if isinstance(part, bytes):
+				decoded += part.decode(charset or 'utf-8', errors='replace')
+			else:
+				decoded += part
+		return decoded
+	except Exception:
+		return s
+
 def format_email_response(email_dict):
 	"""Format email dict for API response, mapping body_html to html and adding email addresses."""
 	result = dict(email_dict)
 	if 'body_html' in result:
 		result['html'] = result.pop('body_html')
+	if 'subject' in result:
+		result['subject'] = decode_rfc2047(result['subject'])
+	# Fix body/html that may contain raw MIME instead of extracted content
+	body = result.get('body') or ''
+	html = result.get('html') or result.get('body_html') or ''
+	if body.startswith(('Content-Type:', 'MIME-Version:')):
+		try:
+			parsed = message_from_string(body)
+			extracted_text, extracted_html = extract_bodies(parsed)
+			if extracted_text:
+				result['body'] = extracted_text
+			if extracted_html:
+				result['html'] = extracted_html
+			elif not html and extracted_text:
+				result['html'] = ''
+		except Exception:
+			pass
 	# Create sender object from joined data
 	sender_email = result.pop('sender_email', None)
 	if sender_email:
@@ -356,12 +391,11 @@ def create_mime_email():
 		# Determine recipients
 		to_addresses = [to_address] if isinstance(to_address, str) else to_address
 		
-		# Extract subject and body for database storage
-		subject = msg.get('Subject', '')
-		
-		# For MIME emails, store the full MIME content in body
-		# (not just a preview) so embedded images are preserved
-		body_preview = mime_content
+		from smtp_server.email_storage import extract_subject, extract_bodies
+
+		subject = extract_subject(msg)
+		plain_text, body_html_from_msg = extract_bodies(msg)
+		body_preview = plain_text
 		
 		# Prepare headers - clean any newlines that could break DKIM
 		headers_dict = {}
