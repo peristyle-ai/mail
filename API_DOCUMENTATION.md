@@ -47,6 +47,8 @@ curl -X POST http://192.168.4.41:5003/auth/login \
 
 **Token Validity**: 24 hours
 
+**Login protection**: `/auth/login` now rate-limits repeated failures by IP and IP+email combination. After too many failed attempts, the endpoint returns `429` temporarily.
+
 ### 2. Use Token in Subsequent Requests
 
 Include the token in the Authorization header:
