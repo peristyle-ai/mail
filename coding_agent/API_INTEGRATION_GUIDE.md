@@ -57,6 +57,8 @@ curl -X POST http://192.168.4.41:5003/auth/login \
 
 **Token Validity**: 24 hours
 
+**Brute-force protection**: repeated failed `/auth/login` attempts are temporarily blocked with `429 Too Many Requests` based on IP and IP+email failures.
+
 ### 2. Use Token in Subsequent Requests
 
 Include the token in the Authorization header:
