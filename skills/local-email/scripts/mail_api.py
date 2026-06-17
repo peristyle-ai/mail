@@ -5,7 +5,7 @@ Reads config from environment variables. Supports --env flag or auto-detects
 from CLAWBIE_ENV, ~/git/clawbie/.env, project .env, or ~/.env.
 
 Environment variables (required):
-    EMAIL_SERVER   — base URL of the mail server (e.g. http://192.168.4.41:5003)
+    EMAIL_SERVER   — base URL of the mail server (e.g. http://localhost:5003)
     EMAIL_ADDRESS  — email account to authenticate as
     EMAIL_PASSWORD — account password
 

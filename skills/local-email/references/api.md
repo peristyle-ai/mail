@@ -6,7 +6,7 @@ This is the HTTP API for the Python/PostgreSQL mail server. It provides SMTP sen
 
 ## Server
 
-- **Base URL:** Set via `EMAIL_SERVER` env var (e.g. `http://192.168.4.41:5003`)
+- **Base URL:** Set via `EMAIL_SERVER` env var (e.g. `http://localhost:5003`)
 - **Swagger UI:** `/docs`
 - **API spec:** `/api/spec.json`
 - **Health check:** `GET /health`
@@ -116,7 +116,7 @@ Content-Type: application/json
 ## Move Email Example
 
 ```bash
-curl -X POST http://192.168.4.41:5003/api/emails/123/move \
+curl -X POST http://localhost:5003/api/emails/123/move \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"folder_id": 137}'
@@ -125,7 +125,7 @@ curl -X POST http://192.168.4.41:5003/api/emails/123/move \
 ## Multiple Recipient Send Example
 
 ```bash
-curl -X POST http://192.168.4.41:5003/api/emails \
+curl -X POST http://localhost:5003/api/emails \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -177,7 +177,7 @@ payload = json.dumps({
 }).encode("utf-8")
 
 req = urllib.request.Request(
-    "http://192.168.4.41:5003/api/emails/mime",
+    "http://localhost:5003/api/emails/mime",
     data=payload,
     headers={
         "Content-Type": "application/json",
@@ -203,11 +203,11 @@ Common failure modes:
 
 ```bash
 # List folders
-curl http://192.168.4.41:5003/api/folders \
+curl http://localhost:5003/api/folders \
   -H "Authorization: Bearer <token>"
 
 # Create a folder
-curl -X POST http://192.168.4.41:5003/api/folders \
+curl -X POST http://localhost:5003/api/folders \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"name": "Processed"}'
@@ -217,34 +217,34 @@ curl -X POST http://192.168.4.41:5003/api/folders \
 
 ```bash
 # List domains
-curl http://192.168.4.41:5003/api/domains \
+curl http://localhost:5003/api/domains \
   -H "Authorization: Bearer <token>"
 
 # Set SMTP2GO relay for a domain
-curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/relay \
+curl -X PUT http://localhost:5003/api/domains/example.com/relay \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "relay_provider": "smtp2go",
     "relay_host": "mail-au.smtp2go.com",
     "relay_port": 2525,
-    "relay_username": "example.com.au",
+    "relay_username": "example.com",
     "relay_password": "smtp-password",
-    "relay_from_address": "support@example.com.au"
+    "relay_from_address": "support@example.com"
   }'
 
 # Verify relay credentials
-curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/relay/verify \
+curl -X POST http://localhost:5003/api/domains/example.com/relay/verify \
   -H "Authorization: Bearer <token>"
 
 # Set a per-domain inbound webhook secret
-curl -X PUT http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret \
+curl -X PUT http://localhost:5003/api/domains/example.com/webhook-secret \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"webhook_secret": "replace-with-a-long-random-secret"}'
 
 # Rotate a per-domain inbound webhook secret
-curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret/rotate \
+curl -X POST http://localhost:5003/api/domains/example.com/webhook-secret/rotate \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -252,7 +252,7 @@ curl -X POST http://192.168.4.41:5003/api/domains/example.com.au/webhook-secret/
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `EMAIL_SERVER` | Mail server base URL | `http://192.168.4.41:5003` |
+| `EMAIL_SERVER` | Mail server base URL | `http://localhost:5003` |
 | `EMAIL_ADDRESS` | Sender/recipient email | `evie@example.com` |
 | `EMAIL_PASSWORD` | Account password | `your_password` |
 | `EMAIL_TO` | Default recipient for send | `user@example.com` |

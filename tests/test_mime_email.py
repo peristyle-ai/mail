@@ -23,7 +23,7 @@ Content-Type: text/html; charset=utf-8
 			'/api/emails/mime',
 			headers=auth_headers,
 			json={
-				'to': 'payroll@example.com',
+				'to': 'recipient@example.net',
 				'mime_content': mime_content
 			}
 		)
@@ -69,7 +69,7 @@ Content-Disposition: inline; filename="test.png"
 			'/api/emails/mime',
 			headers=auth_headers,
 			json={
-				'to': 'payroll@example.com',
+				'to': 'recipient@example.net',
 				'mime_content': mime_content
 			}
 		)
@@ -155,7 +155,7 @@ Content-Disposition: inline; filename="image2.png"
 			'/api/emails/mime',
 			headers=auth_headers,
 			json={
-				'to': 'payroll@example.com',
+				'to': 'recipient@example.net',
 				'mime_content': mime_content
 			}
 		)

@@ -30,7 +30,7 @@ Configure these environment variables (or in `.env`):
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `EMAIL_SERVER` | Base URL of the mail server | `http://192.168.4.41:5003` |
+| `EMAIL_SERVER` | Base URL of the mail server | `http://localhost:5003` |
 | `EMAIL_ADDRESS` | Email account to send from | `evie@yourdomain.com` |
 | `EMAIL_PASSWORD` | Account password | `your_password` |
 | `EMAIL_TO` | Default recipient (optional) | `user@domain.com` |
@@ -74,22 +74,22 @@ python skills/local-email/scripts/mail_api.py domains
 
 # Configure SMTP2GO relay for a domain
 python skills/local-email/scripts/mail_api.py domain-set-relay \
-  --domain "example.com.au" \
+  --domain "example.com" \
   --provider smtp2go \
-  --username "example.com.au" \
+  --username "example.com" \
   --password "smtp-password" \
-  --from-address "support@example.com.au"
+  --from-address "support@example.com"
 
 # Verify relay credentials
-python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com"
 
 # Set a per-domain inbound webhook secret
 python skills/local-email/scripts/mail_api.py domain-set-webhook-secret \
-  --domain "example.com.au" \
+  --domain "example.com" \
   --secret "replace-with-a-long-random-secret"
 
 # Rotate a per-domain inbound webhook secret
-python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com"
 
 # Delete an email
 python skills/local-email/scripts/mail_api.py delete --id 880
@@ -217,44 +217,44 @@ python skills/local-email/scripts/mail_api.py domains
 ### domain-get — Get one domain configuration
 
 ```bash
-python skills/local-email/scripts/mail_api.py domain-get --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-get --domain "example.com"
 ```
 
 ### domain-set-relay — Set relay config for a domain
 
 ```bash
 python skills/local-email/scripts/mail_api.py domain-set-relay \
-  --domain "example.com.au" \
+  --domain "example.com" \
   --provider smtp2go \
-  --username "example.com.au" \
+  --username "example.com" \
   --password "smtp-password" \
-  --from-address "support@example.com.au"
+  --from-address "support@example.com"
 ```
 
 ### domain-verify-relay — Verify relay credentials
 
 ```bash
-python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-verify-relay --domain "example.com"
 ```
 
 ### domain-delete-relay — Remove relay config
 
 ```bash
-python skills/local-email/scripts/mail_api.py domain-delete-relay --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-delete-relay --domain "example.com"
 ```
 
 ### domain-set-webhook-secret — Set a per-domain inbound webhook secret
 
 ```bash
 python skills/local-email/scripts/mail_api.py domain-set-webhook-secret \
-  --domain "example.com.au" \
+  --domain "example.com" \
   --secret "replace-with-a-long-random-secret"
 ```
 
 ### domain-rotate-webhook-secret — Rotate and return a new inbound webhook secret
 
 ```bash
-python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com.au"
+python skills/local-email/scripts/mail_api.py domain-rotate-webhook-secret --domain "example.com"
 ```
 
 ### delete — Delete an email

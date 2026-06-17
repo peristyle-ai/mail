@@ -8,9 +8,9 @@ from pathlib import Path
 
 # Configuration
 BASE_URL = "http://localhost:5003"
-EMAIL = "the operator@example.com.au"
-PASSWORD = "not-a-real-password"
-RECIPIENT = "payroll@example.com"
+EMAIL = "user@example.com"
+PASSWORD = "change-me-password"
+RECIPIENT = "recipient@example.net"
 IMAGE_PATH = Path(__file__).parent / "mime_test_image.png"
 
 def get_auth_token():
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         email_id = send_email_with_embedded_image()
         print(f"\n{'='*60}")
         print(f"Test complete! Email ID: {email_id}")
-        print(f"Check payroll@example.com in 30-60 seconds")
+        print(f"Check {RECIPIENT} in 30-60 seconds")
         print(f"{'='*60}")
     except Exception as e:
         print(f"\n✗ Error: {e}")

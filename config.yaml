@@ -95,7 +95,7 @@ dkim:
 # SPF Record - add this to your DNS:
 # Type: TXT
 # Host: example.com.au
-# Value: v=spf1 ip4:144.6.112.4 -all
+# Value: v=spf1 ip4:203.0.113.10 -all
 
 # API settings
 api:

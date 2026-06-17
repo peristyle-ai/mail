@@ -12,11 +12,11 @@ STEP 1: DKIM DNS Record (CRITICAL for Gmail)
 
 Add this TXT record to your DNS settings:
 
-Host/Name: default._domainkey.example.com.au
+Host/Name: default._domainkey.example.com
 Type: TXT
 TTL: 3600 (or default)
 Value:
-v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA+Wqodw2DH/tlN58GGXfv/pDabnv754lEgB0M6XbSWrB9uQcFqcTlD/cBLHXtH4RnWLBGcoa+QsDeiAdb2Jn/y0B/OUVx2jpS9a3xKXEjTFQCAU6IWTLncrjJ6GK7QcEZCrtubQuLGdHH3nVluFr/iALuu2l5fO4dqC6JC7gU+FMjxckZUC5oY5+9sXSocHsNdiyzLpf/0lK6uFCYH9HhLpiT4s7Bc2G1D350JA1vtClQH9NcG8+ZF/J6ML80xV6iDzpzQJjqg1K68anb3AWSOFRn3aF54UW9mOOstedDeXmN1zEP45Y3h+JA4xjZ203ydVi0w4Ebce7bo5gWIpmWjQIDAQAB
+v=DKIM1; k=rsa; p=<your-public-key>
 
 ================================================================================
 STEP 2: SPF Record (CRITICAL - prevents spoofing)
@@ -24,18 +24,18 @@ STEP 2: SPF Record (CRITICAL - prevents spoofing)
 
 Add this TXT record to your DNS settings:
 
-Host/Name: example.com.au (or @ for root)
+Host/Name: example.com (or @ for root)
 Type: TXT
 TTL: 3600 (or default)
 Value:
-v=spf1 ip4:144.6.112.4 -all
+v=spf1 ip4:203.0.113.10 -all
 
 Explanation:
-- ip4:144.6.112.4 = Your server's IP address
+- ip4:203.0.113.10 = Your server's IP address
 - -all = Fail all other IPs (strict policy)
 
 Alternative (if you send from multiple IPs):
-v=spf1 ip4:144.6.112.4 include:_spf.google.com ~all
+v=spf1 ip4:203.0.113.10 include:_spf.google.com ~all
 
 ================================================================================
 STEP 3: Reverse DNS (PTR) Record (CRITICAL)
@@ -43,8 +43,8 @@ STEP 3: Reverse DNS (PTR) Record (CRITICAL)
 
 Contact your ISP or hosting provider to set up a PTR record:
 
-IP: 144.6.112.4
-Should point to: example.com.au
+IP: 203.0.113.10
+Should point to: mail.example.com
 
 This is usually configured by your ISP, not in your DNS panel.
 
@@ -54,11 +54,11 @@ STEP 4: DMARC Record (Recommended)
 
 Add this TXT record to your DNS settings:
 
-Host/Name: _dmarc.example.com.au
+Host/Name: _dmarc.example.com
 Type: TXT
 TTL: 3600 (or default)
 Value:
-v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com.au; pct=100
+v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com; pct=100
 
 Explanation:
 - p=quarantine = Failed emails go to spam (not rejected)
@@ -72,16 +72,16 @@ STEP 5: Verification Commands
 After adding DNS records (wait 5-30 minutes for propagation), test with:
 
 # Test DKIM
-dig TXT default._domainkey.example.com.au
+dig TXT default._domainkey.example.com
 
 # Test SPF
-dig TXT example.com.au
+dig TXT example.com
 
 # Test DMARC
-dig TXT _dmarc.example.com.au
+dig TXT _dmarc.example.com
 
 # Test Reverse DNS
-dig -x 144.6.112.4
+dig -x 203.0.113.10
 
 # Online validation tools:
 # https://mxtoolbox.com/dkim.aspx
@@ -134,7 +134,7 @@ Solution:
 
 Problem: SPF verification fails
 Solution:
-- Verify your public IP is correct (144.6.112.4)
+- Verify your public IP is correct (203.0.113.10)
 - Check with: curl ifconfig.me
 
 Problem: Gmail rejects emails
@@ -169,9 +169,9 @@ SUPPORT
 ================================================================================
 
 To check current DNS status anytime:
-  dig TXT default._domainkey.example.com.au
-  dig TXT example.com.au
-  dig -x 144.6.112.4
+  dig TXT default._domainkey.example.com
+  dig TXT example.com
+  dig -x 203.0.113.10
 
 To view mail server logs:
   journalctl --user -u mail-server -f
