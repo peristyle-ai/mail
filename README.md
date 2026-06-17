@@ -20,6 +20,13 @@ A small local mail server with a REST API for local email management without SMT
 - **API Documentation**: Interactive Swagger UI at `/docs`
 - **Security**: Protected endpoints, user data isolation, SQL injection prevention
 
+## Public Release Notes
+
+- This repository is designed for self-hosting and development workflows.
+- Before exposing it to the public internet, review rate limits, authentication settings, and inbound relay/webhook configuration for your environment.
+- The tracked repository uses placeholder hosts, domains, credentials, and example recipients. Real secrets belong only in local `.env` files or your deployment secret store.
+- This is not a turnkey multi-tenant hosted email platform; internet-facing deployments should add infrastructure protections such as reverse proxying, external rate limiting, monitoring, and secret management.
+
 ## Setup
 
 ### 1. Prerequisites
@@ -99,7 +106,7 @@ This starts:
 **Firewall Configuration** (if accessing from other computers):
 ```bash
 sudo ufw allow 2525/tcp  # For SMTP server
-sudo ufw allow 5001/tcp  # For Flask API (optional)
+sudo ufw allow 5003/tcp  # For Flask API (optional)
 ```
 
 The server will start on `http://localhost:5003`
