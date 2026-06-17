@@ -4,18 +4,17 @@ After=network.target
 
 [Service]
 Type=simple
-# WorkingDirectory will be set by install script (default: ~/git/py_pg_email)
-WorkingDirectory=/opt/py_pg_accounts/git/py_pg_email
+# WorkingDirectory will be set by install script
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=__PROJECT_ROOT__/.env
 Environment=FLASK_APP=run.py
 Environment=FLASK_ENV=production
-Environment=PYTHONPATH=/opt/py_pg_accounts/git/py_pg_email
-Environment=DATABASE_URL=postgresql://postgres:1234@localhost:5432/mail_server
-Environment=JWT_SECRET=kflss#vQ@oXp!b
-Environment=PROJECT_ROOT=/opt/py_pg_accounts/git/py_pg_email
+Environment=PYTHONPATH=__PROJECT_ROOT__
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
 Environment=SMTP_RATE_LIMIT_MAX_CONNECTIONS=50
 
 # Use the startup script
-ExecStart=/opt/py_pg_accounts/git/py_pg_email/venv/bin/python /opt/py_pg_accounts/git/py_pg_email/start_servers.py --flask-port 5003 --smtp-port 2525
+ExecStart=__PROJECT_ROOT__/venv/bin/python __PROJECT_ROOT__/start_servers.py --flask-port 5003 --smtp-port 2525
 
 # Restart policy
 Restart=always

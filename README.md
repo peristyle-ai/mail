@@ -69,7 +69,7 @@ FLASK_APP=run.py
 FLASK_ENV=development
 DATABASE_URL=postgresql://username:password@localhost:5432/mail_server
 JWT_SECRET=your-super-secret-key-change-this-in-production
-HOST=192.168.4.41
+HOST=127.0.0.1
 ```
 
 ### 5. Initialize Database Schema
@@ -93,7 +93,7 @@ python start_servers.py
 ```
 
 This starts:
-- Flask API on `http://192.168.4.41:5003`
+- Flask API on `http://localhost:5003`
 - SMTP Server on port 2525
 
 **Firewall Configuration** (if accessing from other computers):
@@ -102,13 +102,13 @@ sudo ufw allow 2525/tcp  # For SMTP server
 sudo ufw allow 5001/tcp  # For Flask API (optional)
 ```
 
-The server will start on `http://192.168.4.41:5003`
+The server will start on `http://localhost:5003`
 
 ## API Documentation
 
 ### Interactive Documentation
 
-Once the server is running, visit: **http://192.168.4.41:5003/docs**
+Once the server is running, visit: **http://localhost:5003/docs**
 
 This provides a Swagger UI where you can:
 - Browse all available endpoints
@@ -156,14 +156,14 @@ Get a token by registering and logging in:
 
 ```bash
 # Register
-curl -X POST http://192.168.4.41:5003/auth/register \
+curl -X POST http://localhost:5003/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "password123", "name": "Test User"}'
+  -d '{"email": "user@example.com", "password": "change-me-password", "name": "Test User"}'
 
 # Login
-curl -X POST http://192.168.4.41:5003/auth/login \
+curl -X POST http://localhost:5003/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "password123"}'
+  -d '{"email": "user@example.com", "password": "change-me-password"}'
 ```
 
 ## Testing
@@ -213,7 +213,7 @@ The test suite includes comprehensive security tests:
 
 ## Security Considerations
 
-1. **Password Storage**: Passwords are hashed using SHA-256 (consider upgrading to bcrypt for production)
+1. **Password Storage**: Passwords are hashed using PBKDF2-SHA256
 2. **JWT Tokens**: Tokens expire after 24 hours
 3. **Data Isolation**: Users can only access emails in folders they own (JOIN folders f ON emails.folder_id = f.id WHERE f.user_id = current_user_id)
 4. **SQL Injection**: All queries use parameterized statements

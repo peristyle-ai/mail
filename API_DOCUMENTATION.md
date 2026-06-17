@@ -6,12 +6,12 @@ REST API for email management with JWT authentication. Supports both inbound ema
 
 ## Server Details
 
-- **Base URL**: `http://192.168.4.41:5003`
+- **Base URL**: `http://localhost:5003`
 - **API Port**: 5003
 - **SMTP Port**: 2525 (for internal use)
-- **Swagger UI**: `http://192.168.4.41:5003/docs`
-- **Domain**: example.com.au, example.ai, example.ai, mailrelay.com (multi-domain)
-- **Status**: All tests passing, Gmail delivery working
+- **Swagger UI**: `http://localhost:5003/docs`
+- **Domain**: configure your own local domains via `.env` / database
+- **Status**: see current test output for verification
 
 ## Authentication
 
@@ -26,11 +26,11 @@ Authorization: Bearer <token>
 
 **Request**:
 ```bash
-curl -X POST http://192.168.4.41:5003/auth/login \
+curl -X POST http://localhost:5003/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "the operator@example.com.au",
-    "password": "password123"
+    "email": "user@example.com",
+    "password": "change-me-password"
   }'
 ```
 
@@ -39,8 +39,8 @@ curl -X POST http://192.168.4.41:5003/auth/login \
 {
   "token": "eyJhbGciOiJIUzI1NiIs...",
   "user": {
-    "id": 268,
-    "email": "the operator@example.com.au"
+    "id": 1,
+    "email": "user@example.com"
   }
 }
 ```
@@ -69,7 +69,7 @@ Authorization: Bearer <token>
 ```json
 {
   "email": "user@example.com",
-  "password": "password123",
+  "password": "change-me-password",
   "name": "User Name"
 }
 ```
@@ -81,7 +81,7 @@ Authorization: Bearer <token>
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "change-me-password"
 }
 ```
 
@@ -144,7 +144,7 @@ Get a specific email by ID. Response includes `folder` field indicating which fo
 
 **Request**:
 ```bash
-curl -X POST http://192.168.4.41:5003/api/emails \
+curl -X POST http://localhost:5003/api/emails \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -188,7 +188,7 @@ Send emails with embedded images using raw MIME multipart format. Perfect for se
 
 **Request**:
 ```bash
-curl -X POST http://192.168.4.41:5003/api/emails/mime \
+curl -X POST http://localhost:5003/api/emails/mime \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -249,7 +249,7 @@ with open('chart.png', 'rb') as f:
 
 # Send via API
 response = requests.post(
-    'http://192.168.4.41:5003/api/emails/mime',
+    'http://localhost:5003/api/emails/mime',
     headers={'Authorization': f'Bearer {token}'},
     json={
         'to': 'recipient@example.com',
@@ -317,9 +317,9 @@ Use these endpoints to configure per-domain outbound relay settings. They are JW
   "relay_provider": "smtp2go",
   "relay_host": "mail-au.smtp2go.com",
   "relay_port": 2525,
-  "relay_username": "example.com.au",
+  "relay_username": "example.com",
   "relay_password": "smtp-password",
-  "relay_from_address": "support@example.com.au"
+  "relay_from_address": "support@example.com"
 }
 ```
 
@@ -358,7 +358,7 @@ Check the delivery status of an outbound email.
 
 **Request**:
 ```bash
-curl http://192.168.4.41:5003/api/emails/123/delivery-status \
+curl http://localhost:5003/api/emails/123/delivery-status \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -507,7 +507,7 @@ Query Parameters:
 
 **Example**:
 ```bash
-curl http://192.168.4.41:5003/api/blacklist/ip \
+curl http://localhost:5003/api/blacklist/ip \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -536,7 +536,7 @@ curl http://192.168.4.41:5003/api/blacklist/ip \
 
 **Request**:
 ```bash
-curl -X POST http://192.168.4.41:5003/api/blacklist/ip \
+curl -X POST http://localhost:5003/api/blacklist/ip \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -571,7 +571,7 @@ curl -X POST http://192.168.4.41:5003/api/blacklist/ip \
 
 **Example**:
 ```bash
-curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/1 \
+curl -X DELETE http://localhost:5003/api/blacklist/ip/1 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -588,7 +588,7 @@ curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/1 \
 
 **Example**:
 ```bash
-curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/address/192.168.1.100 \
+curl -X DELETE http://localhost:5003/api/blacklist/ip/address/192.168.1.100 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -597,7 +597,7 @@ curl -X DELETE http://192.168.4.41:5003/api/blacklist/ip/address/192.168.1.100 \
 
 **Example**:
 ```bash
-curl http://192.168.4.41:5003/api/blacklist/ip/check/192.168.1.100 \
+curl http://localhost:5003/api/blacklist/ip/check/192.168.1.100 \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -632,7 +632,7 @@ curl http://192.168.4.41:5003/api/blacklist/ip/check/192.168.1.100 \
 
 **Example**:
 ```bash
-curl http://192.168.4.41:5003/api/blacklist/stats \
+curl http://localhost:5003/api/blacklist/stats \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -668,7 +668,7 @@ curl http://192.168.4.41:5003/api/blacklist/stats \
 
 Receive inbound emails from SMTP2GO, Cloudflare Email Workers, or similar relay services. **No JWT authentication required** — this endpoint is called by external relay services, not end users.
 
-Configure SMTP2GO or Cloudflare Email Workers to forward inbound emails to `https://mail.example.com.au/inbound` (or `http://192.168.4.41:5003/inbound` for direct access).
+Configure SMTP2GO or Cloudflare Email Workers to forward inbound emails to `https://mail.example.com/inbound` (or `http://localhost:5003/inbound` for direct access).
 
 **Supported Content Types**:
 - `application/x-www-form-urlencoded` (SMTP2GO default)
@@ -695,19 +695,19 @@ Configure SMTP2GO or Cloudflare Email Workers to forward inbound emails to `http
 
 **Form-encoded Example (SMTP2GO)**:
 ```bash
-curl -X POST http://192.168.4.41:5003/inbound \
-  -d "from=user@example.com&to=the operator@example.com.au&subject=Test&text=Hello"
+curl -X POST http://localhost:5003/inbound \
+  -d "from=user@example.com&to=user@example.com&subject=Test&text=Hello"
 ```
 
 **Cloudflare Email Workers Example (raw_email field)**:
 ```bash
-curl -X POST http://192.168.4.41:5003/inbound \
-  -d "from=user@example.com&to=support@example.io&subject=Test&raw_email=$(base64 email.mime)"
+curl -X POST http://localhost:5003/inbound \
+  -d "from=user@example.com&to=support@example.com&subject=Test&raw_email=$(base64 email.mime)"
 ```
 
 **JSON Example**:
 ```bash
-curl -X POST http://192.168.4.41:5003/inbound \
+curl -X POST http://localhost:5003/inbound \
   -H "Content-Type: application/json" \
   -d '{"from":"user@example.com","to":"support@example.io","subject":"Test","text":"Hello","html":"<b>Hello</b>"}'
 ```
@@ -760,7 +760,7 @@ curl -X POST http://192.168.4.41:5003/inbound \
 - Extracts and saves attachments from the `mail`/`raw_email` MIME field when provided
 - Base64-encoded MIME content (e.g., from Cloudflare Email Workers) is auto-decoded
 - When `text`/`html` are empty, body content is extracted from the raw MIME
-- Local domains served: `example.com.au`, `mailrelay.com`, `example.ai`, `example.ai`, `example.io`
+- Local domains served: whatever domains you configure in `.env` / the `domains` table
 
 ---
 
@@ -785,9 +785,9 @@ Check server status. No authentication required.
 import requests
 import time
 
-BASE_URL = "http://192.168.4.41:5003"
-EMAIL = "the operator@example.com.au"
-PASSWORD = "password123"
+BASE_URL = "http://localhost:5003"
+EMAIL = "user@example.com"
+PASSWORD = "change-me-password"
 
 def get_auth_token():
     """Obtain JWT token for authentication"""
@@ -869,20 +869,10 @@ if __name__ == "__main__":
 
 2. **Database**: PostgreSQL with tables for emails, users, folders, attachments, outbound queue
 
-3. **DNS Configuration** (multi-domain DKIM):
-    - **example.com.au**:
-      - DKIM: `default._domainkey.example.com.au` TXT record
-      - SPF: `v=spf1 ip4:144.6.112.4 -all`
-      - PTR: `144.6.112.4` → `example.com.au`
-    - **example.ai**:
-      - DKIM: `fencemate._domainkey.example.ai` TXT record
-      - SPF: `v=spf1 ip4:144.6.112.4 -all`
-    - **example.ai**:
-      - DKIM: `default._domainkey.example.ai` TXT record
-      - SPF: `v=spf1 ip4:144.6.112.4 -all`
-    - **mailrelay.com**:
-      - DKIM: `protophys._domainkey.mailrelay.com` TXT record
-      - SPF: `v=spf1 ip4:144.6.112.4 -all`
+3. **DNS Configuration** (example):
+    - DKIM: `default._domainkey.example.com` TXT record
+    - SPF: `v=spf1 ip4:203.0.113.10 -all`
+    - PTR: `203.0.113.10` → `mail.example.com`
 
 4. **Start Server**:
    ```bash
@@ -904,7 +894,7 @@ journalctl --user -u mail-server -n 50
 source venv/bin/activate
 python -c "
 import os
-os.environ['DATABASE_URL'] = 'postgresql://postgres:1234@localhost:5432/mail_server'
+os.environ['DATABASE_URL'] = 'postgresql://username:password@localhost:5432/mail_server'
 from app.db import get_db_connection
 conn = get_db_connection()
 cursor = conn.cursor()
@@ -921,7 +911,7 @@ conn.close()
 source venv/bin/activate
 python -c "
 import os
-os.environ['DATABASE_URL'] = 'postgresql://postgres:1234@localhost:5432/mail_server'
+os.environ['DATABASE_URL'] = 'postgresql://username:password@localhost:5432/mail_server'
 from app.db import get_db_connection
 conn = get_db_connection()
 cursor = conn.cursor()
@@ -949,9 +939,9 @@ python -m pytest tests/ --ignore=tests/test_smtp_integration.py
 ## Important Notes
 
 1. **Port**: API runs on port 5003 (NOT 5001)
-2. **Swagger UI**: Available at `http://192.168.4.41:5003/docs`
-3. **Authorized Users**: the operator@example.com.au, clawbie@example.com.au, support@example.ai, the operator@example.ai, evie@example.ai, support@example.ai, the customer@example.com, customer@example.com, customer@example.com
-4. **Multi-Domain**: Server handles mail for example.com.au, example.ai, example.ai, mailrelay.com
+2. **Swagger UI**: Available at `http://localhost:5003/docs`
+3. **Authorized Users**: user accounts are environment-specific; do not commit production credentials
+4. **Multi-Domain**: Server can handle multiple configured local domains
 5. **Delivery Time**: 30-60 seconds for Gmail
 6. **Rate Limiting**: 50 connections per domain, 100/hour total
 7. **Queue Processing**: Every 30 seconds

@@ -8,17 +8,16 @@ Type=simple
 # User and Group should be set based on your system
 # User=your-username
 # Group=your-group
-WorkingDirectory=/opt/py_pg_accounts/git/py_pg_email
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=__PROJECT_ROOT__/.env
 Environment=FLASK_APP=run.py
 Environment=FLASK_ENV=production
-Environment=PYTHONPATH=/opt/py_pg_accounts/git/py_pg_email
-Environment=PATH=/opt/py_pg_accounts/git/py_pg_email/venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=DATABASE_URL=postgresql://postgres:1234@localhost:5432/mail_server
-Environment=JWT_SECRET=kflss#vQ@oXp!b
-Environment=PROJECT_ROOT=/opt/py_pg_accounts/git/py_pg_email
+Environment=PYTHONPATH=__PROJECT_ROOT__
+Environment=PATH=__PROJECT_ROOT__/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
 
 # Use the startup script
-ExecStart=/opt/py_pg_accounts/git/py_pg_email/start_mail_server.sh
+ExecStart=__PROJECT_ROOT__/start_mail_server.sh
 
 # Restart policy
 Restart=always
@@ -34,7 +33,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=false
-ReadWritePaths=/opt/py_pg_accounts/git/py_pg_email/uploads /opt/py_pg_accounts/git/py_pg_email/logs
+ReadWritePaths=__PROJECT_ROOT__/uploads __PROJECT_ROOT__/logs
 
 [Install]
 WantedBy=multi-user.target

@@ -21,25 +21,13 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Read JWT_SECRET from .env file
-if [ -f "$PROJECT_ROOT/.env" ]; then
-    JWT_SECRET=$(grep '^JWT_SECRET=' "$PROJECT_ROOT/.env" | cut -d '=' -f2)
-    if [ -z "$JWT_SECRET" ]; then
-        echo "Error: JWT_SECRET not found in .env file"
-        exit 1
-    fi
-    echo "Using JWT_SECRET from .env file"
-else
+if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "Error: .env file not found at $PROJECT_ROOT/.env"
     exit 1
 fi
 
-# Update service file with JWT_SECRET and PROJECT_ROOT
-sed -i "s|PROJECT_ROOT=.*|PROJECT_ROOT=$PROJECT_ROOT|" "$PROJECT_ROOT/systemd/mail-server.service"
-sed -i "s/JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" "$PROJECT_ROOT/systemd/mail-server.service"
-
-# Copy service file
-cp "$PROJECT_ROOT/systemd/mail-server.service" /etc/systemd/system/
+# Copy service file with project path filled in
+sed "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PROJECT_ROOT/systemd/mail-server.service" > /etc/systemd/system/mail-server.service
 
 # Make scripts executable
 chmod +x "$PROJECT_ROOT/start_mail_server.sh"

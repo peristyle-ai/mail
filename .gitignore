@@ -136,3 +136,6 @@ backups/
 
 #opencode sessions
 session-ses*
+
+# Internal agent working notes
+coding_agent/

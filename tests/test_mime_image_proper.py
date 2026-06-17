@@ -10,9 +10,9 @@ from pathlib import Path
 
 # Configuration
 BASE_URL = "http://localhost:5003"
-EMAIL = "the operator@example.com.au"
-PASSWORD = "password123"
-RECIPIENT = "payroll@example.com"
+EMAIL = "user@example.com"
+PASSWORD = "change-me-password"
+RECIPIENT = "recipient@example.net"
 IMAGE_PATH = Path(__file__).parent / "mime_test_image.png"
 
 def get_auth_token():

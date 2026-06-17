@@ -245,7 +245,7 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 - All email endpoints (list, get, delete, move, star, mark read) use folder ownership for authorization
 
 ### Required Environment Variables
-- `HOST`: Required. The IP address to bind to (e.g., `192.168.4.41`). Server fails to start without it.
+- `HOST`: Required. The IP address to bind to (e.g., `127.0.0.1`). Server fails to start without it.
 - `DATABASE_URL`: PostgreSQL connection string
 - `JWT_SECRET`: Secret key for JWT tokens
 - `SMTP2GO_WEBHOOK_SECRET`: Optional. HMAC-SHA256 key for verifying SMTP2GO webhook signatures.
