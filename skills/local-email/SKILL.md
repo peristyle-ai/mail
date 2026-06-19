@@ -281,6 +281,56 @@ python skills/local-email/scripts/mail_api.py star --id 880
 python skills/local-email/scripts/mail_api.py status --id 1251
 ```
 
+This checks the mail server's own delivery state only, for example whether the
+message was queued, retried, or successfully handed off to a direct MX server
+or SMTP relay.
+
+#### Verifying final downstream delivery with SMTP2GO
+
+If the domain uses SMTP2GO relay and you have an `SMTP2GO_API_KEY`, you can
+verify whether SMTP2GO reports the message as actually delivered to the
+recipient's provider after handoff.
+
+Use SMTP2GO's `POST /v3/activity/search` endpoint with filters such as:
+
+- `search_recipient`
+- `search_subject`
+- `start_date`
+- `end_date`
+- optionally `only_latest_by_sent=true`
+
+Required SMTP2GO API key permissions:
+
+- **Activity**
+- **Statistics** is useful for related reporting, but the delivery lookup itself uses **Activity**
+- **Webhooks** is not required for manual activity lookup, but is useful if you want ongoing delivery-event ingestion
+
+Example direct API call:
+
+```bash
+curl -X POST https://api.smtp2go.com/v3/activity/search \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "X-Smtp2go-Api-Key: $SMTP2GO_API_KEY" \
+  -d '{
+    "start_date": "2026-06-17T00:00:00Z",
+    "end_date": "2026-06-18T00:00:00Z",
+    "search_recipient": "recipient@example.net",
+    "search_subject": "Invoice INV-12345",
+    "only_latest_by_sent": true,
+    "limit": 20
+  }'
+```
+
+Look for an event like:
+
+- `event: delivered`
+- `smtp_response: 250 ...`
+
+That confirms SMTP2GO delivered the email onward to the recipient's mail
+provider. If your API key lacks the needed permission, SMTP2GO returns an
+`ENDPOINT_PERMISSION_DENIED` error.
+
 ### login — Test mailbox authentication
 
 ```bash
@@ -300,4 +350,5 @@ See `references/api.md` for the full endpoint documentation.
 - Folder IDs can be found via the `folders` command
 - Relay config is managed via the `domains`, `domain-set-relay`, and `domain-verify-relay` commands
 - Per-domain inbound auth is managed via `domain-set-webhook-secret` and `domain-rotate-webhook-secret`
+- Final SMTP2GO delivery confirmation is external to `py_pg_email` and requires querying SMTP2GO Activity Search with an appropriately scoped API key
 - Do not print secrets, passwords, bearer tokens, or API keys into chat unless the user explicitly asks
