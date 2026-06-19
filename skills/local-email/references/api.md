@@ -54,6 +54,16 @@ Content-Type: application/json
 | `POST` | `/api/emails/{id}/move` | Move email to a different folder |
 | `GET` | `/api/emails/{id}/delivery-status` | Check outbound delivery status |
 
+`GET /api/emails/{id}/delivery-status` only reports what this mail server knows:
+
+- queued
+- retrying
+- failed before handoff
+- successfully handed off to direct MX or a configured relay
+
+It does **not** by itself prove downstream final delivery after a third-party
+relay (such as SMTP2GO) accepts the message.
+
 ### Folder Operations
 
 | Method | Path | Description |
@@ -269,3 +279,52 @@ curl -X POST http://localhost:5003/api/domains/example.com/webhook-secret/rotate
 - Relay config is selected by sender domain and only used after `POST /api/domains/{domain}/relay/verify` succeeds
 - Per-domain webhook secrets are stored hashed at rest in `domains.webhook_secret`
 - `POST /api/domains/{domain}/webhook-secret/rotate` returns the new plaintext secret once; save it immediately
+
+## SMTP2GO Downstream Delivery Verification
+
+If you use SMTP2GO as the outbound relay, final recipient-provider delivery can
+be checked via SMTP2GO's Activity Search API after `py_pg_email` has already
+reported a successful relay handoff.
+
+SMTP2GO endpoint:
+
+- `POST https://api.smtp2go.com/v3/activity/search`
+
+Recommended search fields:
+
+- `start_date`
+- `end_date`
+- `search_recipient`
+- `search_subject`
+- `only_latest_by_sent`
+
+Required SMTP2GO API key permissions:
+
+- **Activity** (required)
+- **Statistics** (optional but useful for reporting)
+- **Webhooks** (optional; only needed for webhook-based event ingestion)
+
+Example:
+
+```bash
+curl -X POST https://api.smtp2go.com/v3/activity/search \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "X-Smtp2go-Api-Key: $SMTP2GO_API_KEY" \
+  -d '{
+    "start_date": "2026-06-17T00:00:00Z",
+    "end_date": "2026-06-18T00:00:00Z",
+    "search_recipient": "recipient@example.net",
+    "search_subject": "Invoice INV-12345",
+    "only_latest_by_sent": true,
+    "limit": 20
+  }'
+```
+
+Successful downstream delivery is typically indicated by:
+
+- `event: delivered`
+- an SMTP response such as `250 2.0.0 OK ...`
+
+If the key cannot access the endpoint, SMTP2GO returns an API permission error
+such as `E_ApiResponseCodes.ENDPOINT_PERMISSION_DENIED`.
