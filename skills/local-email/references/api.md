@@ -46,8 +46,8 @@ Content-Type: application/json
 |--------|-------|-------------|
 | `GET` | `/api/emails` | List emails (optional `?folder=Inbox`, `?sent=true`) |
 | `GET` | `/api/emails/{id}` | Read one email by ID |
-| `POST` | `/api/emails` | Send a plain text email to one or more recipients |
-| `POST` | `/api/emails/mime` | Send a MIME email (multipart/attachments) |
+| `POST` | `/api/emails` | Send a plain text email to one or more recipients (supports `to` and `cc`) |
+| `POST` | `/api/emails/mime` | Send a MIME email (multipart/attachments); supports `to` and `cc` |
 | `DELETE` | `/api/emails/{id}` | Delete an email |
 | `POST` | `/api/emails/{id}/read` | Mark email as read |
 | `POST` | `/api/emails/{id}/star` | Toggle starred status |
@@ -143,6 +143,36 @@ curl -X POST http://localhost:5003/api/emails \
     "subject": "Group Email",
     "body": "Hello everyone"
   }'
+```
+
+## CC Send Example
+
+Both `/api/emails` and `/api/emails/mime` accept an optional `cc` field with
+the same shape as `to` (a single address string or an array). CC addresses
+are stamped into the `Cc:` header, each local CC user gets an Inbox copy, and
+each external CC is queued for delivery. If the same address appears in both
+`to` and `cc`, it's kept as `to`.
+
+```bash
+curl -X POST http://localhost:5003/api/emails \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "primary@external.com",
+    "cc": ["teammate@example.com", "manager@external.com"],
+    "subject": "Project update",
+    "body": "FYI all"
+  }'
+```
+
+Successful response includes the `cc_count` of CC recipients:
+
+```json
+{
+  "id": 7810,
+  "queued": true,
+  "cc_count": 2
+}
 ```
 
 ## MIME Send (attachments) Example

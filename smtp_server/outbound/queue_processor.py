@@ -203,11 +203,21 @@ class OutboundQueueProcessor:
 			
 			# Get email content
 			cursor.execute(
-				'''SELECT sender_id, subject, body, raw_email, headers 
+				'''SELECT sender_id, subject, body, raw_email, headers
 				   FROM emails WHERE id = %s''',
 				(email_id,)
 			)
 			email_row = cursor.fetchone()
+
+			# Get CC recipients from email_recipients table (other than sender or current recipient)
+			cursor.execute(
+				'''SELECT u.email FROM email_recipients er
+				   JOIN users u ON er.user_id = u.id
+				   WHERE er.email_id = %s AND er.recipient_type = 'cc'
+				   AND er.user_id != %s AND u.email != %s''',
+				(email_id, email_row['sender_id'], recipient)
+			)
+			cc_local_recipients = [row['email'] for row in cursor.fetchall()]
 			
 			if not email_row:
 				logger.error(f"Email {email_id} not found")
@@ -305,23 +315,25 @@ class OutboundQueueProcessor:
 				logger.info(f"Using stored MIME content for email {email_id}")
 				try:
 					msg = message_from_string(mime_source, policy=default)
-					
+
 					# Update From header (use del + add since replace_header may fail)
 					if msg.get('From'):
 						del msg['From']
 					msg['From'] = from_address
-					
-					# Update To header
+
+					# Update To header to current envelope recipient
 					if msg.get('To'):
 						del msg['To']
 					msg['To'] = recipient
-					
+
+					# Preserve CC header from stored MIME (do not overwrite)
+
 					# Update Message-ID if needed
 					if msg.get('Message-ID'):
 						del msg['Message-ID']
 					domain = from_address.split('@')[-1]
 					msg['Message-ID'] = f"<{uuid.uuid4().hex}@{domain}>"
-					
+
 					logger.info(f"Successfully parsed MIME for email {email_id}, is_multipart={msg.is_multipart()}")
 				except Exception as e:
 					logger.warning(f"Failed to parse MIME content for email {email_id}: {e}, rebuilding message")
@@ -343,24 +355,28 @@ class OutboundQueueProcessor:
 				msg['From'] = from_address
 				msg['To'] = recipient
 				msg['Subject'] = email_row['subject']
-				
+
+				# Add CC header if there are local CC recipients
+				if cc_local_recipients:
+					msg['Cc'] = ', '.join(cc_local_recipients)
+
 				# Generate Message-ID (required by Gmail)
 				domain = from_address.split('@')[-1]
 				msg_id = f"<{uuid.uuid4().hex}@{domain}>"
 				msg['Message-ID'] = msg_id
-				
+
 				# Detect if content is HTML and set appropriate content type
 				html_pattern = re.compile(r'<(html|head|body|div|span|p|a|img|table|tr|td|th|h[1-6]|br|hr|style|script)', re.IGNORECASE)
-				
+
 				if html_pattern.search(body):
 					logger.info(f"Detected HTML content for email {email_id}, setting text/html content type")
 					msg.set_content(body, subtype='html', charset='utf-8')
 				else:
 					msg.set_content(body)
-				
+
 				# Add original headers (skip content-related and address headers)
 				if email_row['headers']:
-					skip_headers = {'from', 'to', 'subject', 'message-id', 'date', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
+					skip_headers = {'from', 'to', 'cc', 'subject', 'message-id', 'date', 'content-type', 'content-transfer-encoding', 'mime-version', 'content-disposition'}
 					for line in email_row['headers'].split('\n'):
 						if ':' in line:
 							key, value = line.split(':', 1)

@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
-from smtp_server.email_storage import extract_bodies
 import logging
 from email import message_from_string
 from email.message import EmailMessage
@@ -54,6 +53,7 @@ def format_email_response(email_dict):
 	if looks_like_raw_email(body):
 		try:
 			parsed = message_from_string(body)
+			from smtp_server.email_storage import extract_bodies
 			extracted_text, extracted_html = extract_bodies(parsed)
 			if extracted_text:
 				result['body'] = extracted_text
@@ -195,6 +195,29 @@ def get_email(email_id):
 		return jsonify({'error': 'Email not found'}), 404
 	return jsonify(format_email_response(dict(email)))
 
+def _normalize_recipient_list(value, field_name, cursor, conn):
+	"""Normalize a string-or-list recipient field into a clean list of strings.
+
+	Returns a tuple of (normalized_list, error_response_tuple_or_None).
+	"""
+	if value is None:
+		return [], None
+	if isinstance(value, str):
+		value = [value]
+	if not isinstance(value, list):
+		return None, (jsonify({'error': f'{field_name} must be a string or array of strings'}), 400)
+
+	normalized = []
+	for entry in value:
+		if not isinstance(entry, str):
+			return None, (jsonify({'error': f'each entry in {field_name} must be a string'}), 400)
+		entry = entry.strip()
+		if not entry:
+			return None, (jsonify({'error': f'{field_name} entries cannot be empty'}), 400)
+		normalized.append(entry)
+	return normalized, None
+
+
 @bp.route('/api/emails', methods=['POST'])
 @token_required
 def create_email():
@@ -214,8 +237,23 @@ def create_email():
 	        - to
 	      properties:
 	        to:
-	          type: string
-	          description: Recipient email address
+	          oneOf:
+	            - type: string
+	            - type: array
+	              items:
+	                type: string
+	          description: |
+	            Recipient email address(es). String for one recipient, or array of
+	            strings for multiple.
+	        cc:
+	          oneOf:
+	            - type: string
+	            - type: array
+	              items:
+	                type: string
+	          description: |
+	            Optional CC recipient email address(es). Same shape as `to`.
+	            Both local users and external addresses are supported.
 	        subject:
 	          type: string
 	          description: Email subject
@@ -233,6 +271,13 @@ def create_email():
 	      properties:
 	        id:
 	          type: integer
+	        queued:
+	          type: boolean
+	        cc_count:
+	          type: integer
+	          description: Number of CC recipients
+	  400:
+	    description: Invalid input
 	  401:
 	    description: Unauthorized
 	"""
@@ -242,8 +287,7 @@ def create_email():
 
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	
-	# Get sender's email
+
 	cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
 	sender_row = cursor.fetchone()
 	if not sender_row:
@@ -251,33 +295,22 @@ def create_email():
 		conn.close()
 		return jsonify({'error': 'Sender not found'}), 400
 	from_address = sender_row['email']
-	
-	# Handle recipients
-	recipients = data.get('to')
-	if isinstance(recipients, str):
-		recipients = [recipients]
-	elif not isinstance(recipients, list):
+
+	normalized_recipients, err = _normalize_recipient_list(data.get('to'), 'to', cursor, conn)
+	if err:
 		cursor.close()
 		conn.close()
-		return jsonify({'error': 'to must be a string or array of strings'}), 400
-
-	normalized_recipients = []
-	for recipient_email in recipients:
-		if not isinstance(recipient_email, str):
-			cursor.close()
-			conn.close()
-			return jsonify({'error': 'each recipient in to must be a string'}), 400
-		recipient_email = recipient_email.strip()
-		if not recipient_email:
-			cursor.close()
-			conn.close()
-			return jsonify({'error': 'recipient email cannot be empty'}), 400
-		normalized_recipients.append(recipient_email)
-
+		return err
 	if not normalized_recipients:
 		cursor.close()
 		conn.close()
 		return jsonify({'error': 'at least one recipient is required'}), 400
+
+	normalized_cc, err = _normalize_recipient_list(data.get('cc'), 'cc', cursor, conn)
+	if err:
+		cursor.close()
+		conn.close()
+		return err
 
 	cursor.close()
 	conn.close()
@@ -289,6 +322,8 @@ def create_email():
 	msg['Subject'] = data.get('subject', '')
 	msg['From'] = from_address
 	msg['To'] = ', '.join(normalized_recipients)
+	if normalized_cc:
+		msg['Cc'] = ', '.join(normalized_cc)
 	msg.set_content(data.get('body', ''))
 
 	try:
@@ -296,12 +331,17 @@ def create_email():
 			sender_id=request.current_user['id'],
 			from_address=from_address,
 			to_addresses=normalized_recipients,
+			cc_addresses=normalized_cc,
 			subject=data.get('subject', ''),
 			body=data.get('body', ''),
 			message=msg,
 			headers=dict(msg.items())
 		)
-		return jsonify({'id': email_id, 'queued': len(queue_ids) > 0}), 201
+		return jsonify({
+			'id': email_id,
+			'queued': len(queue_ids) > 0,
+			'cc_count': len(normalized_cc)
+		}), 201
 	except Exception as e:
 		logger.error(f"Error queueing outbound email: {e}")
 		return jsonify({'error': str(e)}), 500
