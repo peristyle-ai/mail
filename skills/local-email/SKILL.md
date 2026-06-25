@@ -1,7 +1,7 @@
 ---
 name: local-email
-description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send, move, star, delete, delivery-status checks, and per-domain outbound relay and webhook-secret management. Use when retrieving API keys or messages from the inbox, sending mail via the local server, checking delivery, or debugging email-server auth/API behavior.
-version: 1.4.0
+description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send (with optional CC and attachments), move, star, delete, delivery-status checks, and per-domain outbound relay and webhook-secret management. Use when retrieving API keys or messages from the inbox, sending mail via the local server (single or multi-recipient with CC), checking delivery, or debugging email-server auth/API behavior.
+version: 1.5.0
 metadata:
   openclaw:
     requires:
@@ -62,6 +62,14 @@ python skills/local-email/scripts/mail_api.py send \
   --to "user@example.com" \
   --subject "Hello" \
   --body "Message text"
+
+# Send with CC recipients (mixed local + external)
+python skills/local-email/scripts/mail_api.py send \
+  --to "primary@external.com" \
+  --cc "teammate@example.com" \
+  --cc "manager@external.com" \
+  --subject "Project update" \
+  --body "FYI all"
 
 # Move email to a different folder
 python skills/local-email/scripts/mail_api.py move --id 880 --folder-id 137
@@ -144,6 +152,26 @@ python skills/local-email/scripts/mail_api.py send \
   --body "Email body text"
 ```
 
+#### Send with CC recipients
+
+The `--cc` flag mirrors RFC 5322 CC semantics: addresses are stamped into the
+`Cc:` header, receive their own local Inbox copy (when local), and each
+external CC is queued for delivery. The sender sees them in their own Sent
+view via `email_recipients` with `recipient_type='cc'`. Repeat `--cc` for
+multiple addresses or pass a comma-separated list.
+
+```bash
+python skills/local-email/scripts/mail_api.py send \
+  --to "primary@external.com" \
+  --cc "teammate@example.com" \
+  --cc "manager@external.com" \
+  --subject "Project update" \
+  --body "FYI all"
+```
+
+A recipient that appears in both `--to` and `--cc` is kept as `to` (the more
+prominent role).
+
 #### Send with attachments (PDF, image, etc.)
 
 When `--attachment` is provided the email is sent as a multipart MIME message
@@ -160,6 +188,8 @@ python skills/local-email/scripts/mail_api.py send \
 
 When using attachments, `--from-addr` is required so the server stamps the
 correct sender (defaults to `EMAIL_ADDRESS` otherwise).
+
+You can combine `--cc` with `--attachment`; the same CC semantics apply.
 
 #### Send a prebuilt MIME message from a file
 

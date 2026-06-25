@@ -174,6 +174,7 @@ def _build_mime_with_attachments(
 	body: str,
 	attachments: list[Path] | None,
 	html: str | None = None,
+	cc_addrs: list[str] | None = None,
 ) -> bytes:
 	"""Build a multipart/mixed MIME message for the /api/emails/mime endpoint.
 
@@ -191,6 +192,8 @@ def _build_mime_with_attachments(
 	msg["From"] = from_addr
 	# Use comma-joined form for multiple recipients in the To header
 	msg["To"] = ", ".join(to_addrs)
+	if cc_addrs:
+		msg["Cc"] = ", ".join(cc_addrs)
 	msg["Subject"] = subject
 
 	if html is not None:
@@ -223,6 +226,10 @@ def cmd_send(args: argparse.Namespace, env: dict[str, str]) -> None:
 	if not to_addresses:
 		raise SystemExit("Error: --to is required when EMAIL_TO is not set")
 
+	cc_addresses = normalize_to_addresses(getattr(args, "cc", None), "")
+	if args.cc and not cc_addresses:
+		raise SystemExit("Error: --cc was provided but no recipients parsed")
+
 	attachments = [Path(p) for p in (args.attachment or [])]
 	missing = [str(p) for p in attachments if not p.exists()]
 	if missing:
@@ -239,30 +246,37 @@ def cmd_send(args: argparse.Namespace, env: dict[str, str]) -> None:
 			body=args.body,
 			attachments=attachments,
 			html=args.html,
+			cc_addrs=cc_addresses,
 		)
 		# Critical: encode the raw bytes as a JSON string. JSON is UTF-8, so
 		# latin-1 round-trips 1:1 with bytes (every byte 0x00-0xFF maps to a
 		# valid code point). Do NOT base64 — the server does not base64-decode.
 		mime_str = raw_mime.decode("latin-1")
 		to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
+		payload = {
+			"to": to_payload,
+			"from": from_addr,
+			"subject": args.subject,
+			"mime_content": mime_str,
+		}
+		if cc_addresses:
+			payload["cc"] = cc_addresses
 		payload = request_json(
 			f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails/mime",
 			method="POST",
 			token=token,
-			payload={
-				"to": to_payload,
-				"from": from_addr,
-				"subject": args.subject,
-				"mime_content": mime_str,
-			},
+			payload=payload,
 		)
 	else:
 		to_payload = to_addresses[0] if len(to_addresses) == 1 else to_addresses
+		api_payload = {"to": to_payload, "subject": args.subject, "body": args.body}
+		if cc_addresses:
+			api_payload["cc"] = cc_addresses[0] if len(cc_addresses) == 1 else cc_addresses
 		payload = request_json(
 			f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails",
 			method="POST",
 			token=token,
-			payload={"to": to_payload, "subject": args.subject, "body": args.body},
+			payload=api_payload,
 		)
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -282,16 +296,20 @@ def cmd_send_mime(args: argparse.Namespace, env: dict[str, str]) -> None:
 	raw = mime_path.read_bytes()
 	# Subject and recipients are still required by the server even when
 	# mime_content is provided (server uses them for envelope/sender metadata).
+	cc_addresses = normalize_to_addresses(getattr(args, "cc", None), "")
+	payload_body = {
+		"to": [args.to] if isinstance(args.to, str) else args.to,
+		"from": args.from_addr or env["EMAIL_ADDRESS"],
+		"subject": args.subject,
+		"mime_content": raw.decode("latin-1"),
+	}
+	if cc_addresses:
+		payload_body["cc"] = cc_addresses
 	payload = request_json(
 		f"{env['EMAIL_SERVER'].rstrip('/')}/api/emails/mime",
 		method="POST",
 		token=token,
-		payload={
-			"to": [args.to] if isinstance(args.to, str) else args.to,
-			"from": args.from_addr or env["EMAIL_ADDRESS"],
-			"subject": args.subject,
-			"mime_content": raw.decode("latin-1"),
-		},
+		payload=payload_body,
 	)
 	print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -475,6 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 	p = sub.add_parser("send", help="Send an email (use --attachment to send a MIME message with files)")
 	p.add_argument("--to", metavar="ADDR", action="append", default=None, help="Recipient; repeat or comma-separate for multiple")
+	p.add_argument("--cc", metavar="ADDR", action="append", default=None, help="CC recipient; repeat or comma-separate for multiple. Mixed local + external supported.")
 	p.add_argument("--from-addr", metavar="ADDR", dest="from_addr", default=None, help="Sender address (defaults to EMAIL_ADDRESS). Required only when using --attachment.")
 	p.add_argument("--subject", required=True, help="Subject line")
 	p.add_argument("--body", required=True, help="Email body (plain text)")
@@ -484,6 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 	p = sub.add_parser("send-mime", help="Send a prebuilt RFC 822 MIME message from a file")
 	p.add_argument("--to", metavar="ADDR", required=True, help="Recipient address")
+	p.add_argument("--cc", metavar="ADDR", action="append", default=None, help="CC recipient; repeat or comma-separate for multiple")
 	p.add_argument("--from-addr", metavar="ADDR", dest="from_addr", default=None, help="Sender address (defaults to EMAIL_ADDRESS)")
 	p.add_argument("--subject", required=True, help="Subject line (used for envelope metadata; not added to the MIME body)")
 	p.add_argument("--mime-file", required=True, metavar="PATH", help="Path to a complete RFC 822 / multipart MIME file")

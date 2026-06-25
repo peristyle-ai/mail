@@ -58,45 +58,49 @@ def queue_outbound_email(
 	subject: str,
 	body: str,
 	message: EmailMessage,
-	headers: Optional[Dict] = None
+	headers: Optional[Dict] = None,
+	cc_addresses: Optional[List[str]] = None
 ) -> Tuple[int, List[int]]:
 	"""
 	Queue an email for outbound delivery.
-	
+
 	Args:
 		sender_id: User ID of the sender
 		from_address: Sender email address
-		to_addresses: List of recipient email addresses
+		to_addresses: List of primary recipient email addresses
 		subject: Email subject
 		body: Email body
 		message: Complete EmailMessage object
 		headers: Optional additional headers
-		
+		cc_addresses: Optional list of CC recipient email addresses
+
 	Returns:
 		Tuple of (email_id, list_of_queue_ids)
 	"""
 	from smtp_server.email_storage import extract_bodies
 
+	cc_addresses = cc_addresses or []
+
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	
+
 	try:
 		# Extract HTML body from message
 		_, body_html = extract_bodies(message)
-		
+
 		# Get Sent folder
 		sent_folder_id = get_or_create_sent_folder(sender_id)
-		
+
 		# Convert headers to string
 		headers_str = ''
 		if headers:
 			for key, value in headers.items():
 				headers_str += f"{key}: {value}\n"
-		
+
 		# Add message headers
 		for key, value in message.items():
 			headers_str += f"{key}: {value}\n"
-		
+
 		# Store raw email content
 		raw_email_str = ''
 		if message:
@@ -105,49 +109,60 @@ def queue_outbound_email(
 				raw_email_str = raw_bytes.decode('utf-8', errors='replace')
 			except Exception:
 				pass
-		
-		# First pass: identify local vs external recipients
+
+		# First pass: identify local vs external recipients across all recipients
+		all_recipients = [
+			(addr, 'to') for addr in to_addresses
+		] + [
+			(addr, 'cc') for addr in cc_addresses
+		]
+		# Deduplicate while preserving recipient_type priority: 'to' over 'cc'
+		seen = {}
+		for addr, rtype in all_recipients:
+			key = addr.lower()
+			if key not in seen or rtype == 'to':
+				seen[key] = rtype
+		unique_recipients = list(seen.items())
+
 		queue_ids = []
 		local_recipients = []
-		
-		for to_address in to_addresses:
-			domain = to_address.split('@')[-1].lower()
-			
-			# Check if this is a local domain
+
+		for to_address, recipient_type in unique_recipients:
+			# Check if this is a local user
 			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (to_address,))
 			local_user = cursor.fetchone()
-			
+
 			if local_user:
-				# Local delivery - store in recipient's inbox
-				local_recipients.append((to_address, local_user['id']))
+				local_recipients.append((to_address, local_user['id'], recipient_type))
 			else:
-				# External delivery - will queue it after creating email
+				# External - queue after creating email
 				pass
-		
-		# Determine recipient_id for sent email: first local recipient or NULL
-		recipient_id = local_recipients[0][1] if local_recipients else None
-		
+
+		# Determine recipient_id for sent email: first local 'to' recipient or NULL
+		recipient_id = None
+		for _, rid, rtype in local_recipients:
+			if rtype == 'to':
+				recipient_id = rid
+				break
+
 		# Store in emails table (in Sent folder) with recipient_id
 		cursor.execute(
-			'''INSERT INTO emails 
+			'''INSERT INTO emails
 			   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
 			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 			   RETURNING id''',
-			(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str, 
+			(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str,
 			 datetime.now(timezone.utc), True)  # Mark as read since user sent it
 		)
 		email_id = cursor.fetchone()['id']
-		
-		# Queue external recipients
-		for to_address in to_addresses:
-			domain = to_address.split('@')[-1].lower()
-			
-			# Check if this is a local domain (already did this above, but needed for domain)
+
+		# Queue external recipients (preserve recipient_type for delivery semantics)
+		for to_address, recipient_type in unique_recipients:
 			cursor.execute('SELECT id FROM users WHERE email = %s AND is_local = TRUE', (to_address,))
 			local_user = cursor.fetchone()
-			
+
 			if not local_user:
-				# External delivery - queue it
+				domain = to_address.split('@')[-1].lower()
 				cursor.execute(
 					'''INSERT INTO outbound_queue
 					   (email_id, recipient_email, recipient_domain, status, created_at)
@@ -157,57 +172,62 @@ def queue_outbound_email(
 				)
 				queue_id = cursor.fetchone()['id']
 				queue_ids.append(queue_id)
-				logger.info(f"Queued email {email_id} for delivery to {to_address}")
-		
-		# Handle local recipients
-		for to_address, recipient_id in local_recipients:
-			# Skip creating Inbox copy when sender is the same as recipient
-			if recipient_id == sender_id:
+				logger.info(f"Queued email {email_id} for delivery to {to_address} ({recipient_type})")
+
+		# Handle local recipients (Inbox copies + email_recipients rows)
+		for to_address, recipient_id_local, recipient_type in local_recipients:
+			if recipient_id_local == sender_id:
+				# Sender self-send; record as 'to'/'cc' against the sent email only
+				cursor.execute(
+					'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
+					   VALUES (%s, %s, %s)''',
+					(email_id, recipient_id_local, recipient_type)
+				)
 				continue
 
 			# Get recipient's inbox
 			cursor.execute(
 				'SELECT id FROM folders WHERE user_id = %s AND name = %s',
-				(recipient_id, 'Inbox')
+				(recipient_id_local, 'Inbox')
 			)
 			inbox = cursor.fetchone()
-			
+
 			if not inbox:
 				cursor.execute(
 					'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
-					(recipient_id, 'Inbox')
+					(recipient_id_local, 'Inbox')
 				)
 				inbox = cursor.fetchone()
 
 			# Copy email to recipient's inbox
 			cursor.execute(
-				'''INSERT INTO emails 
+				'''INSERT INTO emails
 				   (sender_id, recipient_id, source_email_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
 				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 				   RETURNING id''',
-				(sender_id, recipient_id, email_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
+				(sender_id, recipient_id_local, email_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
 				 datetime.now(timezone.utc), False)
 			)
 			recipient_email_id = cursor.fetchone()['id']
-			
-			# Add recipient entry
+
+			# Add recipient entry (type preserved)
 			cursor.execute(
 				'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
 				   VALUES (%s, %s, %s)''',
-				(recipient_email_id, recipient_id, 'to')
+				(recipient_email_id, recipient_id_local, recipient_type)
 			)
-			
-			logger.info(f"Stored local copy of email {email_id} for {to_address}")
-		
-		# Add sender as recipient for the sent email
+
+			logger.info(f"Stored local copy of email {email_id} for {to_address} ({recipient_type})")
+
+		# Record sender as a recipient against the sent email (type='to')
 		cursor.execute(
 			'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
 			   VALUES (%s, %s, %s)''',
 			(email_id, sender_id, 'to')
 		)
-		
+
 		conn.commit()
-		logger.info(f"Successfully queued email {email_id} with {len(queue_ids)} external recipients")
+		logger.info(f"Successfully queued email {email_id} with {len(queue_ids)} external recipients ({len(cc_addresses)} cc)")
 		return email_id, queue_ids
 		
 	except Exception as e:
