@@ -220,3 +220,141 @@ class TestCC:
 			},
 		)
 		assert response.status_code == 400
+
+
+class TestCCDeliveryPreservesHeaders:
+	"""Verify that delivery preserves the full To/Cc headers (RFC 5322)."""
+
+	def test_delivery_to_cc_recipient_keeps_original_to_header(self, client, auth_headers, db, monkeypatch):
+		"""When delivering to a CC recipient, To: must still show the full list."""
+		from smtp_server.outbound.queue_processor import OutboundQueueProcessor
+
+		# Send with one To + one CC (both external)
+		response = client.post(
+			'/api/emails',
+			headers=auth_headers,
+			json={
+				'to': 'primary@external.com',
+				'cc': 'ccfriend@external.com',
+				'subject': 'Header preservation',
+				'body': 'body',
+			},
+		)
+		assert response.status_code == 201
+		email_id = response.get_json()['id']
+
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''INSERT INTO domains (domain, relay_provider, relay_host, relay_port,
+			   relay_username, relay_password_encrypted, relay_verified)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+			('example.com', 'smtp2go', 'mail-au.smtp2go.com', 2525, 'example.com', 'pw', True)
+		)
+		# Find the CC queue entry (recipient = ccfriend@external.com)
+		cursor.execute(
+			'''SELECT id, recipient_email, recipient_domain, attempt_count
+			   FROM outbound_queue WHERE email_id = %s AND recipient_email = %s''',
+			(email_id, 'ccfriend@external.com'),
+		)
+		queue_entry = cursor.fetchone()
+		conn.commit()
+		cursor.close()
+		conn.close()
+
+		delivered = {}
+
+		def fake_deliver(self, from_address, to_addresses, message):
+			delivered['to_header'] = message.get('To')
+			delivered['cc_header'] = message.get('Cc')
+			delivered['envelope_to'] = to_addresses[0]
+			return True, 'ok'
+
+		monkeypatch.setattr(
+			'smtp_server.outbound.queue_processor.SMTP2GODelivery.deliver',
+			fake_deliver,
+		)
+
+		processor = OutboundQueueProcessor(check_interval=30, max_retries=1)
+		processor.dkim_signer = None
+		processor.dkim_signers = {}
+		processor.mx_lookup.get_mail_server = lambda r: (_ for _ in ()).throw(AssertionError('MX lookup should not run'))
+
+		processor._process_email(
+			queue_entry['id'],
+			email_id,
+			queue_entry['recipient_email'],
+			queue_entry['recipient_domain'],
+			queue_entry['attempt_count'],
+		)
+
+		# Envelope RCPT TO is the CC recipient (just them)
+		assert delivered['envelope_to'] == 'ccfriend@external.com'
+
+		# But the MIME To: header still shows the original primary recipient,
+		# not the CC recipient. Cc: shows the CC list.
+		assert delivered['to_header'] == 'primary@external.com'
+		assert delivered['cc_header'] == 'ccfriend@external.com'
+
+	def test_delivery_to_to_recipient_preserves_cc_header(self, client, auth_headers, db, monkeypatch):
+		"""When delivering to a To recipient, Cc: must show the CC list, not be empty."""
+		from smtp_server.outbound.queue_processor import OutboundQueueProcessor
+
+		response = client.post(
+			'/api/emails',
+			headers=auth_headers,
+			json={
+				'to': 'primary@external.com',
+				'cc': 'ccfriend@external.com',
+				'subject': 'Header preservation to',
+				'body': 'body',
+			},
+		)
+		assert response.status_code == 201
+		email_id = response.get_json()['id']
+
+		conn = db()
+		cursor = conn.cursor()
+		cursor.execute(
+			'''INSERT INTO domains (domain, relay_provider, relay_host, relay_port,
+			   relay_username, relay_password_encrypted, relay_verified)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+			('example.com', 'smtp2go', 'mail-au.smtp2go.com', 2525, 'example.com', 'pw', True)
+		)
+		cursor.execute(
+			'''SELECT id, recipient_email, recipient_domain, attempt_count
+			   FROM outbound_queue WHERE email_id = %s AND recipient_email = %s''',
+			(email_id, 'primary@external.com'),
+		)
+		queue_entry = cursor.fetchone()
+		conn.commit()
+		cursor.close()
+		conn.close()
+
+		delivered = {}
+
+		def fake_deliver(self, from_address, to_addresses, message):
+			delivered['to_header'] = message.get('To')
+			delivered['cc_header'] = message.get('Cc')
+			return True, 'ok'
+
+		monkeypatch.setattr(
+			'smtp_server.outbound.queue_processor.SMTP2GODelivery.deliver',
+			fake_deliver,
+		)
+
+		processor = OutboundQueueProcessor(check_interval=30, max_retries=1)
+		processor.dkim_signer = None
+		processor.dkim_signers = {}
+		processor.mx_lookup.get_mail_server = lambda r: (_ for _ in ()).throw(AssertionError('MX lookup should not run'))
+
+		processor._process_email(
+			queue_entry['id'],
+			email_id,
+			queue_entry['recipient_email'],
+			queue_entry['recipient_domain'],
+			queue_entry['attempt_count'],
+		)
+
+		assert delivered['to_header'] == 'primary@external.com'
+		assert delivered['cc_header'] == 'ccfriend@external.com'
