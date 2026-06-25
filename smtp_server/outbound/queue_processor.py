@@ -321,12 +321,11 @@ class OutboundQueueProcessor:
 						del msg['From']
 					msg['From'] = from_address
 
-					# Update To header to current envelope recipient
-					if msg.get('To'):
-						del msg['To']
-					msg['To'] = recipient
-
-					# Preserve CC header from stored MIME (do not overwrite)
+					# Preserve original To: and Cc: headers from stored MIME so each
+					# recipient sees the full recipient list (RFC 5322). The SMTP
+					# envelope RCPT TO still differs per delivery.
+					if not msg.get('To'):
+						msg['To'] = recipient
 
 					# Update Message-ID if needed
 					if msg.get('Message-ID'):
@@ -353,11 +352,30 @@ class OutboundQueueProcessor:
 				# Rebuild the message (existing behavior for plain text)
 				msg = EmailMessage()
 				msg['From'] = from_address
-				msg['To'] = recipient
 				msg['Subject'] = email_row['subject']
 
-				# Add CC header if there are local CC recipients
-				if cc_local_recipients:
+				# Extract original To/Cc from stored headers so each recipient
+				# sees the full recipient list (RFC 5322). The SMTP envelope RCPT
+				# TO still differs per delivery.
+				original_to = ''
+				original_cc = ''
+				if email_row['headers']:
+					for line in email_row['headers'].split('\n'):
+						if line.lower().startswith('to:'):
+							original_to = line.split(':', 1)[1].strip()
+						elif line.lower().startswith('cc:'):
+							original_cc = line.split(':', 1)[1].strip()
+
+				# To: original list, or fall back to current envelope recipient
+				if original_to:
+					msg['To'] = original_to
+				else:
+					msg['To'] = recipient
+
+				# Cc: original list, or fall back to local CC users we know about
+				if original_cc:
+					msg['Cc'] = original_cc
+				elif cc_local_recipients:
 					msg['Cc'] = ', '.join(cc_local_recipients)
 
 				# Generate Message-ID (required by Gmail)
