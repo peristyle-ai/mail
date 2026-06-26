@@ -5,6 +5,7 @@ import logging
 from email import message_from_string
 from email.message import EmailMessage
 from email.policy import default
+from email.utils import getaddresses
 
 bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
@@ -366,8 +367,22 @@ def create_mime_email():
 	        - mime_content
 	      properties:
 	        to:
-	          type: string
-	          description: Recipient email address
+	          oneOf:
+	            - type: string
+	            - type: array
+	              items:
+	                type: string
+	          description: Recipient email address(es)
+	        cc:
+	          oneOf:
+	            - type: string
+	            - type: array
+	              items:
+	                type: string
+	          description: |
+	            Optional CC recipient(s). If omitted, the Cc: header from the
+	            parsed MIME message is used (when present). The request-level
+	            `cc` field takes priority over a Cc: header in the MIME.
 	        mime_content:
 	          type: string
 	          description: Raw MIME multipart message content
@@ -381,6 +396,9 @@ def create_mime_email():
 	          type: integer
 	        queued:
 	          type: boolean
+	        cc_count:
+	          type: integer
+	          description: Number of CC recipients
 	        status:
 	          type: string
 	  400:
@@ -389,10 +407,10 @@ def create_mime_email():
 	    description: Unauthorized
 	"""
 	data = request.get_json()
-	
+
 	if not data or 'mime_content' not in data:
 		return jsonify({'error': 'mime_content is required'}), 400
-	
+
 	mime_content = data.get('mime_content')
 	to_address = data.get('to')
 	
@@ -402,73 +420,103 @@ def create_mime_email():
 	try:
 		# Parse the MIME message
 		msg = message_from_string(mime_content)
-		
+
 		# Validate it's a valid MIME message
 		if not msg:
 			return jsonify({'error': 'Failed to parse MIME message'}), 400
-		
+
 		# Get sender's email from current user
 		conn = get_db_connection()
 		cursor = conn.cursor()
 		cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
 		sender_row = cursor.fetchone()
+		if not sender_row:
+			cursor.close()
+			conn.close()
+			return jsonify({'error': 'Sender not found'}), 400
+		from_address = sender_row['email']
+
+		# Normalize request-level to / cc (string or array).
+		normalized_recipients, err = _normalize_recipient_list(data.get('to'), 'to', cursor, conn)
+		if err:
+			cursor.close()
+			conn.close()
+			return err
+		if not normalized_recipients:
+			cursor.close()
+			conn.close()
+			return jsonify({'error': 'at least one recipient is required'}), 400
+
+		normalized_cc, err = _normalize_recipient_list(data.get('cc'), 'cc', cursor, conn)
+		if err:
+			cursor.close()
+			conn.close()
+			return err
+
 		cursor.close()
 		conn.close()
-		
-		if not sender_row:
-			return jsonify({'error': 'Sender not found'}), 400
-		
-		from_address = sender_row['email']
-		
+
+		# Fall back to extracting Cc from the parsed MIME message if the
+		# request didn't supply `cc`. The request-level value wins when present.
+		if not normalized_cc and msg.get('Cc'):
+			parsed_cc = [addr for name, addr in getaddresses([str(msg.get('Cc'))]) if addr]
+			if parsed_cc:
+				normalized_cc = parsed_cc
+				# Replace the existing Cc header (del + add) to avoid duplicate
+				# Cc headers when the parsed message already had one.
+				del msg['Cc']
+				msg['Cc'] = ', '.join(parsed_cc)
+
 		# Ensure the MIME message has proper From header
 		if not msg.get('From'):
 			msg['From'] = from_address
-		
-		# Ensure the MIME message has proper To header
-		if not msg.get('To'):
-			msg['To'] = to_address
-		
+
+		# Ensure the MIME message has proper To header (preserve any
+		# Cc that the caller already supplied)
+		if not msg.get('To') or all(addr not in str(msg.get('To', '')) for addr in normalized_recipients):
+			msg['To'] = ', '.join(normalized_recipients)
+
 		# Ensure the MIME message has a Message-ID
 		if not msg.get('Message-ID'):
 			import uuid
 			msg['Message-ID'] = f"<{uuid.uuid4()}@{from_address.split('@')[-1]}>"
-		
+
 		# The parsed message is a Message object
 		# Ensure required headers are present
 		if not msg.get('Subject'):
 			msg['Subject'] = 'No Subject'
-		
+
 		# Import and use the queue function
 		from smtp_server.outbound.storage import queue_outbound_email
-		
-		# Determine recipients
-		to_addresses = [to_address] if isinstance(to_address, str) else to_address
-		
+
+		to_addresses = normalized_recipients
+
 		from smtp_server.email_storage import extract_subject, extract_bodies
 
 		subject = extract_subject(msg)
 		plain_text, body_html_from_msg = extract_bodies(msg)
 		body_preview = plain_text
-		
+
 		# Prepare headers - clean any newlines that could break DKIM
 		headers_dict = {}
 		for key, value in msg.items():
 			# Remove any newlines from header values to prevent DKIM issues
 			clean_value = str(value).replace('\n', ' ').replace('\r', ' ')
 			headers_dict[key] = clean_value
-		
+
 		# Queue the email
 		email_id, queue_ids = queue_outbound_email(
 			sender_id=request.current_user['id'],
 			from_address=from_address,
 			to_addresses=to_addresses,
+			cc_addresses=normalized_cc,
 			subject=subject,
 			body=body_preview,
 			message=msg,
 			headers=headers_dict
 		)
-		
-		logger.info(f"MIME email queued: ID={email_id}, recipients={to_addresses}")
+
+		logger.info(f"MIME email queued: ID={email_id}, recipients={to_addresses} (cc={len(normalized_cc)})")
 		
 		# Extract and save attachments from MIME content
 		from email.policy import default
@@ -522,6 +570,7 @@ def create_mime_email():
 		return jsonify({
 			'id': email_id,
 			'queued': len(queue_ids) > 0,
+			'cc_count': len(normalized_cc),
 			'status': 'pending'
 		}), 201
 		

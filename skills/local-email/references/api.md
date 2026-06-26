@@ -229,6 +229,14 @@ with urllib.request.urlopen(req) as resp:
     print(resp.read().decode())
 ```
 
+#### CC recipients with `/api/emails/mime`
+
+`/api/emails/mime` accepts an optional `cc` field with the same shape as `to`
+(string or array). When present, the request-level `cc` is used. When
+omitted, the server falls back to any `Cc:` header in the parsed MIME
+message itself. The request-level value always wins. Display names are
+parsed (`Friend <addr>` → `addr`).
+
 Common failure modes:
 
 - **400 "mime_content is required"** — you forgot the field, or it's `null`.
@@ -238,6 +246,9 @@ Common failure modes:
 - **201 with no delivery** — check that the `From` header in the MIME body
   matches a real local mailbox (or matches the JWT user); the server may
   accept the message but fail to assign a sender.
+- **CC recipients silently missing from the queue** — pass `cc` explicitly
+  in the request body, or include a `Cc:` header in the MIME. The server
+  cannot infer CC from anything else.
 
 ## Folder Operations Example
 
