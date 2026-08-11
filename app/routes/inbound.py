@@ -164,11 +164,20 @@ def _parse_inbound_payload(content_type: str):
 	return '', '', '', '', '', '', '', jsonify({"error": "Unsupported content type"}), 400
 
 
-def _verify_inbound_request(recipient_email: str) -> tuple[bool, str]:
-	"""Verify inbound request using per-domain secret or legacy SMTP2GO HMAC."""
+def _verify_inbound_request(recipient_email: str, raw_body: bytes = b'') -> tuple[bool, str]:
+	"""Verify inbound request using per-domain secret or legacy SMTP2GO HMAC.
+
+	Args:
+	    recipient_email: The parsed recipient email (used to look up per-domain secret).
+	    raw_body: Pre-captured raw request body bytes (avoids relying on request.get_data()
+	              which may return empty after form/json parsing).
+	"""
 	recipient_domain = recipient_email.split('@')[-1].lower() if '@' in recipient_email else ''
 	domain_secret_hash = _get_domain_webhook_secret_hash(recipient_domain)
 	provided_secret = request.headers.get('X-Webhook-Secret', '').strip()
+
+	# Use the pre-captured raw body if provided; fall back to request.get_data() for safety.
+	body_for_hmac = raw_body if raw_body else request.get_data()
 
 	if domain_secret_hash:
 		if provided_secret:
@@ -177,14 +186,14 @@ def _verify_inbound_request(recipient_email: str) -> tuple[bool, str]:
 			return False, 'Invalid webhook secret'
 		if SMTP2GO_WEBHOOK_SECRET:
 			signature = request.headers.get('X-SMTP2GO-Signature', '')
-			if _verify_smtp2go_signature(request.get_data(), signature):
+			if _verify_smtp2go_signature(body_for_hmac, signature):
 				return True, ''
 			return False, 'Invalid signature'
 		return False, 'Missing webhook secret'
 
 	if SMTP2GO_WEBHOOK_SECRET:
 		signature = request.headers.get('X-SMTP2GO-Signature', '')
-		if _verify_smtp2go_signature(request.get_data(), signature):
+		if _verify_smtp2go_signature(body_for_hmac, signature):
 			return True, ''
 		return False, 'Invalid signature'
 
@@ -304,7 +313,13 @@ def receive_inbound_webhook():
 		if len(raw_data) > MAX_RAW_MIME_LENGTH:
 			return jsonify({"error": "Payload too large"}), 413
 
-	# ── Debug: log full request details ────────────────────────────────────────
+	# ── Capture raw body for HMAC verification ────────────────────────────────
+	# IMPORTANT: This must run BEFORE any form/json parsing, because Flask's request.form
+	# / request.get_json() can cause request.get_data() to return empty bytes afterward
+	# (the input stream is consumed during parsing). Without this, signature verification
+	# would always fail on multipart and JSON bodies.
+	raw_body = request.get_data(cache=True, as_text=False, parse_form_data=False)
+
 	content_type = request.content_type or ""
 	content_length = request.content_length or 0
 	logger.info(f"Inbound: content_type={content_type}, content_length={content_length}, remote_addr={client_ip}")
@@ -366,7 +381,7 @@ def receive_inbound_webhook():
 	if not recipient_email:
 		return jsonify({"error": "Invalid recipient email"}), 400
 
-	verified, verification_error = _verify_inbound_request(recipient_email)
+	verified, verification_error = _verify_inbound_request(recipient_email, raw_body)
 	if not verified:
 		logger.warning(f"Inbound: verification failed for {recipient_email} from {client_ip}: {verification_error}")
 		return jsonify({"error": verification_error}), 403
