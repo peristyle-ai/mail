@@ -86,7 +86,10 @@ dkim:
     - domain: "example.io"
       selector: "flowerops"
       private_key: "certs/dkim_flowerops.pem"
-  
+    - domain: "example.trade"
+      selector: "enp1"
+      private_key: "certs/dkim_enp1.pem"
+
   # Fallback single domain config (used if domains list is empty)
   domain: "example.com.au"
   selector: "default"
