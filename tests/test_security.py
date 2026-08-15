@@ -190,7 +190,12 @@ class TestGreylistManager:
         """Test new sender is greylisted."""
         # Clean up any existing entries first
         import psycopg2
-        conn = psycopg2.connect('postgresql://postgres:1234@localhost:5432/mail_server_test')
+        conn = psycopg2.connect(os.environ.get(
+        'MAIL_SERVER_TEST_DSN',
+        # Fallback: parse DATABASE_URL set by conftest.py. Test DB is
+        # postgres-owned so the postgres password works for tests.
+        'postgresql://postgres:' + os.environ['POSTGRES_PASSWORD_TEST'] + '@localhost:5432/mail_server_test'
+    ))
         cursor = conn.cursor()
         cursor.execute('''
             DELETE FROM greylist 
@@ -233,7 +238,12 @@ class TestGreylistManager:
         
         # Clean up any existing entry first
         import psycopg2
-        conn = psycopg2.connect('postgresql://postgres:1234@localhost:5432/mail_server_test')
+        conn = psycopg2.connect(os.environ.get(
+        'MAIL_SERVER_TEST_DSN',
+        # Fallback: parse DATABASE_URL set by conftest.py. Test DB is
+        # postgres-owned so the postgres password works for tests.
+        'postgresql://postgres:' + os.environ['POSTGRES_PASSWORD_TEST'] + '@localhost:5432/mail_server_test'
+    ))
         cursor = conn.cursor()
         cursor.execute('''
             DELETE FROM greylist 
