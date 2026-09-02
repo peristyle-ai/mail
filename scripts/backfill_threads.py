@@ -36,18 +36,26 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import uuid
 from collections import defaultdict
-from email import message_from_string
-from email.message import Message
 from typing import Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import the parsing helpers from the canonical location. PR2 lifted them
+# here from the script so live capture paths (PR3) and the backfill (this
+# script) share one implementation.
+from app.utils.emails import (
+    MAX_CHAIN_DEPTH,  # noqa: F401 — re-exported for back-compat with PR1 tests
+    compute_thread_id,
+    extract_from_headers_blob,
+    extract_threading_headers,
+    normalize_subject,
+)
 
 # This script intentionally does NOT import from `app.db` (which transitively
 # imports Flask, flasgger, the whole app stack). The backfill is an
@@ -66,193 +74,8 @@ def _get_db_connection():
 
 
 # =============================================================================
-# Parsing helpers (PR2 will lift these into app/utils/emails.py)
+# Helpers (parsing + thread-ID) live in app.utils.emails; imported above.
 # =============================================================================
-
-_RE_PREFIX = re.compile(r"^\s*(re|fwd|fw)\s*:\s*", re.IGNORECASE)
-
-
-def normalize_subject(subject: Optional[str]) -> str:
-    """Strip leading Re:/Fwd:/Fw: prefixes (case-insensitive, repeated) and
-    lower-case the result. Returns '' for empty/None input."""
-    if not subject:
-        return ""
-    s = subject.strip()
-    while True:
-        new = _RE_PREFIX.sub("", s, count=1)
-        if new == s:
-            break
-        s = new
-    return s.lower()
-
-
-def _strip_brackets(msg_id: str) -> str:
-    """Strip surrounding angle brackets and whitespace; tolerate missing brackets."""
-    s = msg_id.strip()
-    if s.startswith("<") and s.endswith(">"):
-        s = s[1:-1].strip()
-    return s
-
-
-def extract_threading_headers(raw_text: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Parse Message-ID / In-Reply-To / References from a raw RFC 2822 message.
-
-    Returns (message_id, in_reply_to, references) - all without angle brackets.
-    Any missing header is None.
-    """
-    if not raw_text:
-        return None, None, None
-    try:
-        msg = message_from_string(raw_text)
-    except Exception:
-        return None, None, None
-
-    mid = _strip_brackets(msg.get("Message-ID", "") or "")
-    irt = _strip_brackets(msg.get("In-Reply-To", "") or "")
-
-    refs_raw = (msg.get("References", "") or "").strip()
-    if refs_raw:
-        # References is a space-separated list of Message-IDs, each optionally
-        # surrounded by angle brackets.
-        parts = [_strip_brackets(p) for p in refs_raw.split()]
-        refs = " ".join(p for p in parts if p)
-    else:
-        refs = ""
-
-    return (mid or None, irt or None, refs or None)
-
-
-def extract_from_headers_blob(headers_blob: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Fallback parser for the `headers` column (newline-separated "K: V" pairs).
-    Less reliable than parsing raw_email but covers rows where raw_email was
-    not stored."""
-    if not headers_blob:
-        return None, None, None
-    mid = irt = refs = None
-    for line in headers_blob.splitlines():
-        if line.startswith((" ", "\t")):
-            continue  # folded continuation
-        if ":" not in line:
-            continue
-        name, _, value = line.partition(":")
-        name_lc = name.strip().lower()
-        value = value.strip()
-        if name_lc == "message-id" and not mid:
-            mid = _strip_brackets(value)
-        elif name_lc == "in-reply-to" and not irt:
-            irt = _strip_brackets(value)
-        elif name_lc == "references" and not refs:
-            parts = [_strip_brackets(p) for p in value.split()]
-            refs = " ".join(p for p in parts if p)
-    return (mid or None, irt or None, refs or None)
-
-
-# =============================================================================
-# Thread-stitching logic (PR2 will move this too; the SQL lives here for now
-# because it's only used by the backfill today)
-# =============================================================================
-
-MAX_CHAIN_DEPTH = 50  # guard against References / In-Reply-To cycles
-
-
-def resolve_thread_id_by_references(
-    cursor, refs: str, candidate_root_id: Optional[int]
-) -> tuple[Optional[str], str]:
-    """Given a space-separated References chain, return (thread_id, reason).
-
-    Strategy:
-        1. If any Message-ID in the chain belongs to an existing email row,
-           use that row's thread_id (or assign a fresh one if it's NULL).
-        2. Otherwise return None with reason='no_chain_match'.
-
-    `candidate_root_id` is the email we're processing; if its own Message-ID
-    happens to be in its own chain (defensive), we still treat it as a new
-    thread root.
-    """
-    if not refs:
-        return None, "no_refs"
-
-    ids = [r for r in refs.split() if r]
-    for mid in ids:
-        cursor.execute(
-            "SELECT id, thread_id FROM emails WHERE message_id = %s LIMIT 1",
-            (mid,),
-        )
-        row = cursor.fetchone()
-        if row and row["id"] != candidate_root_id:
-            if row["thread_id"]:
-                return row["thread_id"], "references"
-            # Found the parent but it has no thread_id yet - hand back its id
-            # so the caller can stitch. (We do the actual UPDATE here.)
-            new_tid = str(uuid.uuid4())
-            cursor.execute(
-                "UPDATE emails SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
-                (new_tid, row["id"]),
-            )
-            return new_tid, "references"
-
-    return None, "no_chain_match"
-
-
-def resolve_thread_id_by_in_reply_to(cursor, irt: str, candidate_root_id: Optional[int]) -> tuple[Optional[str], str]:
-    """Walk `message_id = in_reply_to` recursively until we hit a row with no
-    parent. Return that ancestor's thread_id (or a fresh UUID we just minted
-    for it)."""
-    if not irt:
-        return None, "no_irt"
-
-    current_mid = irt
-    visited = set()
-    for _ in range(MAX_CHAIN_DEPTH):
-        if current_mid in visited:
-            return None, "cycle"
-        visited.add(current_mid)
-
-        cursor.execute(
-            """
-            SELECT e.id, e.thread_id, e.in_reply_to
-              FROM emails e
-             WHERE e.message_id = %s
-             ORDER BY e.id ASC
-             LIMIT 1
-            """,
-            (current_mid,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None, "irt_not_found"
-        if row["id"] == candidate_root_id:
-            # Don't follow a cycle back to ourselves.
-            return None, "self_parent"
-        if row["thread_id"]:
-            return row["thread_id"], "in_reply_to"
-        if not row["in_reply_to"]:
-            # Root of the chain - mint a new UUID and stamp it.
-            new_tid = str(uuid.uuid4())
-            cursor.execute(
-                "UPDATE emails SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
-                (new_tid, row["id"]),
-            )
-            return new_tid, "in_reply_to"
-        current_mid = row["in_reply_to"]
-
-    return None, "depth_exceeded"
-
-
-def participants_key(cursor, email_id: int) -> Optional[frozenset]:
-    """Return a stable set of (sender_id, *recipient_user_ids) for an email.
-    None if sender is missing (shouldn't happen, but be defensive)."""
-    cursor.execute("SELECT sender_id FROM emails WHERE id = %s", (email_id,))
-    row = cursor.fetchone()
-    if not row or row["sender_id"] is None:
-        return None
-    sender_id = row["sender_id"]
-    cursor.execute(
-        "SELECT user_id FROM email_recipients WHERE email_id = %s",
-        (email_id,),
-    )
-    recipients = {r["user_id"] for r in cursor.fetchall()}
-    return frozenset({sender_id, *recipients})
 
 
 # =============================================================================
@@ -333,35 +156,28 @@ def backfill(
             tid = None
             strategy = None
 
-            if refs:
-                tid, strategy = resolve_thread_id_by_references(cursor, refs, candidate_root_id=email_id)
+            if refs or irt or subj_norm:
+                tid, strategy = compute_thread_id(
+                    cursor,
+                    message_id=mid,
+                    in_reply_to=irt,
+                    references_chain=refs,
+                    candidate_root_id=email_id,
+                    subject_normalized=subj_norm,
+                )
                 if tid:
-                    counts["references"] += 1
-            if not tid and irt:
-                tid, strategy = resolve_thread_id_by_in_reply_to(cursor, irt, candidate_root_id=email_id)
-                if tid:
-                    counts["in_reply_to"] += 1
-            if not tid:
-                # Subject fallback bucket - only when we have at least a
-                # normalized subject to key on AND all participants exist.
-                pk = participants_key(cursor, email_id)
-                if subj_norm and pk:
-                    tid = uuid.uuid5(
-                        uuid.NAMESPACE_DNS,
-                        f"py_pg_email|subject|{subj_norm}|{','.join(str(x) for x in sorted(pk))}",
-                    )
-                    strategy = "subject_fallback"
-                    counts["subject_fallback"] += 1
+                    counts[strategy] = counts.get(strategy, 0) + 1
                 else:
+                    # compute_thread_id returned (None, reason); count as
+                    # no_signal and fall through to the lone-message UUID.
                     counts["no_signal"] += 1
-
-            if not tid:
-                # Last resort: a per-row fresh UUID so every row ends up with
-                # *some* thread_id. This makes future re-stitches possible
-                # (a row can never be orphaned by a NULL thread_id), and the
-                # API contract is satisfied.
-                tid = uuid.uuid4()
-                strategy = strategy or "lone_message"
+                    tid = str(uuid.uuid4())
+                    strategy = "lone_message"
+                    counts[strategy] = counts.get(strategy, 0) + 1
+            else:
+                counts["no_signal"] += 1
+                tid = str(uuid.uuid4())
+                strategy = "lone_message"
                 counts[strategy] = counts.get(strategy, 0) + 1
 
             # 3. Write the four new columns (plus subject_normalized when we

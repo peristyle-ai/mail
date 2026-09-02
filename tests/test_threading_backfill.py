@@ -42,28 +42,28 @@ if not os.environ.get("POSTGRES_DB_NAME"):
 
 class TestNormalizeSubject(unittest.TestCase):
     def test_strips_re(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject("Re: hello"), "hello")
 
     def test_strips_repeated_prefixes(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject("Re: RE: Fwd: re: hello"), "hello")
 
     def test_lowercases(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject("Hello World"), "hello world")
 
     def test_strips_whitespace(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject("   Re:   hi  "), "hi")
 
     def test_empty_and_none(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject(""), "")
         self.assertEqual(normalize_subject(None), "")
 
     def test_no_prefix(self):
-        from scripts.backfill_threads import normalize_subject
+        from app.utils.emails import normalize_subject
         self.assertEqual(normalize_subject("Plain subject"), "plain subject")
 
 
@@ -80,20 +80,20 @@ class TestExtractThreadingHeaders(unittest.TestCase):
     )
 
     def test_basic(self):
-        from scripts.backfill_threads import extract_threading_headers
+        from app.utils.emails import extract_threading_headers
         mid, irt, refs = extract_threading_headers(self.RAW)
         self.assertEqual(mid, "abc-1@example.com")
         self.assertEqual(irt, "abc-0@example.com")
         self.assertEqual(refs, "abc-0@example.com abc-root@example.com")
 
     def test_no_brackets(self):
-        from scripts.backfill_threads import extract_threading_headers
+        from app.utils.emails import extract_threading_headers
         raw = "Message-ID: abc@example.com\r\n\r\nBody"
         mid, _, _ = extract_threading_headers(raw)
         self.assertEqual(mid, "abc@example.com")
 
     def test_missing_headers(self):
-        from scripts.backfill_threads import extract_threading_headers
+        from app.utils.emails import extract_threading_headers
         raw = "Subject: Hi\r\n\r\nBody"
         mid, irt, refs = extract_threading_headers(raw)
         self.assertIsNone(mid)
@@ -101,12 +101,12 @@ class TestExtractThreadingHeaders(unittest.TestCase):
         self.assertIsNone(refs)
 
     def test_empty(self):
-        from scripts.backfill_threads import extract_threading_headers
+        from app.utils.emails import extract_threading_headers
         self.assertEqual(extract_threading_headers(None), (None, None, None))
         self.assertEqual(extract_threading_headers(""), (None, None, None))
 
     def test_garbage(self):
-        from scripts.backfill_threads import extract_threading_headers
+        from app.utils.emails import extract_threading_headers
         mid, irt, refs = extract_threading_headers("\x00\x01 not an email")
         # Should not raise; all-None is acceptable.
         self.assertIsNone(mid)
@@ -114,7 +114,7 @@ class TestExtractThreadingHeaders(unittest.TestCase):
 
 class TestExtractFromHeadersBlob(unittest.TestCase):
     def test_basic(self):
-        from scripts.backfill_threads import extract_from_headers_blob
+        from app.utils.emails import extract_from_headers_blob
         blob = (
             "Message-ID: <x@example.com>\n"
             "In-Reply-To: <y@example.com>\n"
@@ -126,7 +126,7 @@ class TestExtractFromHeadersBlob(unittest.TestCase):
         self.assertEqual(refs, "a b")
 
     def test_folded_continuation_ignored(self):
-        from scripts.backfill_threads import extract_from_headers_blob
+        from app.utils.emails import extract_from_headers_blob
         blob = "Message-ID: <x@example.com>\n \t continuation\n"
         mid, _, _ = extract_from_headers_blob(blob)
         self.assertEqual(mid, "x@example.com")
