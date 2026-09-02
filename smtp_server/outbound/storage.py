@@ -104,6 +104,10 @@ def queue_outbound_email(
 		domain = from_address.split('@')[-1].lower() if '@' in from_address else 'localhost'
 		message_id = f"{_uuid.uuid4()}@{domain}"
 	if message is not None:
+		# Replace any existing Message-ID; Python's EmailMessage raises
+		# ValueError if you assign Message-ID twice.
+		if 'Message-ID' in message:
+			del message['Message-ID']
 		message['Message-ID'] = f"<{message_id}>"
 
 	if not in_reply_to and message is not None:
@@ -111,6 +115,8 @@ def queue_outbound_email(
 		if existing:
 			in_reply_to = existing.strip().lstrip('<').rstrip('>')
 	if in_reply_to and message is not None:
+		if 'In-Reply-To' in message:
+			del message['In-Reply-To']
 		message['In-Reply-To'] = f"<{in_reply_to}>"
 
 	if not references and message is not None:
@@ -124,6 +130,8 @@ def queue_outbound_email(
 			if refs_parts:
 				references = ' '.join(refs_parts)
 	if references and message is not None:
+		if 'References' in message:
+			del message['References']
 		message['References'] = ' '.join(f"<{r}>" for r in references.split())
 
 	conn = get_db_connection()
