@@ -12,6 +12,11 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db_connection
+from app.utils.emails import (
+    compute_thread_id,
+    extract_threading_headers,
+    normalize_subject,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -263,12 +268,12 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             if s is None:
                 return ''
             return s.replace('\x00', '')
-        
+
         subject_clean = sanitize_string(subject)
         body_clean = sanitize_string(body)
         body_html_clean = sanitize_string(body_html)
         headers_clean = sanitize_string(headers_str)
-        
+
         # Store raw email for future extraction
         raw_email_str = ''
         if raw_data:
@@ -276,32 +281,57 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
                 raw_email_str = sanitize_string(raw_data.decode('utf-8', errors='replace'))
             except:
                 raw_email_str = sanitize_string(str(raw_data))
-        
+
+        # --- Threading (RFC 2822) ----------------------------------------------
+        # Parse Message-ID / In-Reply-To / References from the raw wire bytes
+        # (preferred) or the parsed EmailMessage as fallback. Compute
+        # thread_id with the same priority used by the backfill script:
+        #   References > In-Reply-To walk > subject+participants bucket.
+        mid, irt, refs = extract_threading_headers(raw_email_str)
+        subj_norm = normalize_subject(subject_clean)
+        tid, _strategy = compute_thread_id(
+            cursor,
+            message_id=mid,
+            in_reply_to=irt,
+            references_chain=refs,
+            candidate_root_id=None,  # new insert; parent has different email_id
+            subject_normalized=subj_norm,
+        )
+        subject_normalized_value = subj_norm if subj_norm and not (mid or irt or refs) else None
+
         # Insert email with correct sender_id and recipient_id
         cursor.execute(
-            '''INSERT INTO emails 
-               (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+            '''INSERT INTO emails
+               (sender_id, recipient_id, folder_id, subject, body, body_html,
+                raw_email, headers, created_at, is_read,
+                message_id, in_reply_to, references_chain, thread_id,
+                subject_normalized)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                       %s, %s, %s, %s, %s)
                RETURNING id''',
-            (sender_id, user_id, folder_id, subject_clean, body_clean, body_html_clean, raw_email_str, headers_clean, datetime.now(timezone.utc), False)
+            (sender_id, user_id, folder_id, subject_clean, body_clean, body_html_clean,
+             raw_email_str, headers_clean, datetime.now(timezone.utc), False,
+             mid, irt, refs, tid, subject_normalized_value)
         )
-        
+
         email_id = cursor.fetchone()['id']
-        
+
         # Add recipient to email_recipients (the user who received this email)
         cursor.execute(
             'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
             (email_id, user_id, 'to')
         )
-        
+
         # Save any attachments
         save_attachments(message, email_id, user_id, conn, cursor)
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
-        logger.info(f"Email stored with ID: {email_id}")
+
+        logger.info(
+            f"Email stored with ID: {email_id} (thread_id={tid}, message_id={mid!r})"
+        )
         return email_id
         
     except Exception as e:

@@ -11,6 +11,12 @@ from flask import Blueprint, request, jsonify
 
 from ..db import get_db_connection
 from ..db import get_seed_domains
+from ..utils.emails import (
+    compute_thread_id,
+    extract_from_headers_blob,
+    extract_threading_headers,
+    normalize_subject,
+)
 from ..utils.webhooks import verify_webhook_secret
 
 inbound_bp = Blueprint('inbound', __name__)
@@ -512,15 +518,35 @@ def receive_inbound_webhook():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
+		# --- Threading (RFC 2822) ---
+		# Parse from raw MIME (preferred); the `headers` blob is fallback.
+		mid, irt, refs = extract_threading_headers(raw_email_clean)
+		if not (mid or irt or refs):
+			mid, irt, refs = extract_from_headers_blob(headers_clean)
+		subj_norm = normalize_subject(subject_clean)
+		tid, _strategy = compute_thread_id(
+			cursor,
+			message_id=mid,
+			in_reply_to=irt,
+			references_chain=refs,
+			candidate_root_id=None,
+			subject_normalized=subj_norm,
+		)
+		subject_normalized_value = subj_norm if subj_norm and not (mid or irt or refs) else None
+
 		cursor.execute(
 			'''INSERT INTO emails
 			   (sender_id, recipient_id, folder_id, subject, body, body_html,
-			    raw_email, headers, created_at, is_read)
-			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			    raw_email, headers, created_at, is_read,
+			    message_id, in_reply_to, references_chain, thread_id,
+			    subject_normalized)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+			           %s, %s, %s, %s, %s)
 			   RETURNING id''',
 			(sender_id, recipient_id, inbox_id, subject_clean, body_clean,
 			 body_html_clean, raw_email_clean, headers_clean,
-			 datetime.now(timezone.utc), False)
+			 datetime.now(timezone.utc), False,
+			 mid, irt, refs, tid, subject_normalized_value)
 		)
 		email_id = cursor.fetchone()['id']
 

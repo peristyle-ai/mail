@@ -5,6 +5,7 @@ Handles queuing outgoing emails and tracking delivery status.
 """
 
 import logging
+import uuid as _uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from email.message import EmailMessage
@@ -14,6 +15,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db_connection
+from app.utils.emails import (
+    compute_thread_id,
+    extract_threading_headers,
+    normalize_subject,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +65,10 @@ def queue_outbound_email(
 	body: str,
 	message: EmailMessage,
 	headers: Optional[Dict] = None,
-	cc_addresses: Optional[List[str]] = None
+	cc_addresses: Optional[List[str]] = None,
+	message_id: Optional[str] = None,
+	in_reply_to: Optional[str] = None,
+	references: Optional[str] = None,
 ) -> Tuple[int, List[int]]:
 	"""
 	Queue an email for outbound delivery.
@@ -73,6 +82,10 @@ def queue_outbound_email(
 		message: Complete EmailMessage object
 		headers: Optional additional headers
 		cc_addresses: Optional list of CC recipient email addresses
+		message_id: Optional Message-ID for threading (no angle brackets).
+			If None, generated from `<uuid>@<from-domain>`.
+		in_reply_to: Optional In-Reply-To Message-ID (no angle brackets).
+		references: Optional space-separated References chain.
 
 	Returns:
 		Tuple of (email_id, list_of_queue_ids)
@@ -80,6 +93,38 @@ def queue_outbound_email(
 	from smtp_server.email_storage import extract_bodies
 
 	cc_addresses = cc_addresses or []
+
+	# --- Resolve threading headers (caller-supplied > parsed from message) ---
+	# Pull existing values from the EmailMessage if the caller didn't pass them.
+	if not message_id:
+		existing = message.get('Message-ID', '') if message is not None else ''
+		if existing:
+			message_id = existing.strip().lstrip('<').rstrip('>')
+	if not message_id:
+		domain = from_address.split('@')[-1].lower() if '@' in from_address else 'localhost'
+		message_id = f"{_uuid.uuid4()}@{domain}"
+	if message is not None:
+		message['Message-ID'] = f"<{message_id}>"
+
+	if not in_reply_to and message is not None:
+		existing = message.get('In-Reply-To', '')
+		if existing:
+			in_reply_to = existing.strip().lstrip('<').rstrip('>')
+	if in_reply_to and message is not None:
+		message['In-Reply-To'] = f"<{in_reply_to}>"
+
+	if not references and message is not None:
+		existing = message.get('References', '')
+		if existing:
+			refs_parts = []
+			for part in existing.split():
+				p = part.strip().lstrip('<').rstrip('>')
+				if p:
+					refs_parts.append(p)
+			if refs_parts:
+				references = ' '.join(refs_parts)
+	if references and message is not None:
+		message['References'] = ' '.join(f"<{r}>" for r in references.split())
 
 	conn = get_db_connection()
 	cursor = conn.cursor()
@@ -145,14 +190,32 @@ def queue_outbound_email(
 				recipient_id = rid
 				break
 
+		# Compute thread_id once - shared across Sent row and every Inbox copy
+		# (per coding_agent/plan_threading.md D2).
+		subj_norm = normalize_subject(subject)
+		thread_id, _strategy = compute_thread_id(
+			cursor,
+			message_id=message_id,
+			in_reply_to=in_reply_to,
+			references_chain=references,
+			candidate_root_id=None,
+			subject_normalized=subj_norm,
+		)
+		# Only populate subject_normalized when we actually used the subject
+		# fallback bucket (no headers were available to thread by).
+		subject_normalized_value = subj_norm if subj_norm and not (message_id or in_reply_to or references) else None
+
 		# Store in emails table (in Sent folder) with recipient_id
 		cursor.execute(
 			'''INSERT INTO emails
-			   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
-			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
+			    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
+			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+			           %s, %s, %s, %s, %s)
 			   RETURNING id''',
 			(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str,
-			 datetime.now(timezone.utc), True)  # Mark as read since user sent it
+			 datetime.now(timezone.utc), True,  # Mark as read since user sent it
+			 message_id, in_reply_to, references, thread_id, subject_normalized_value)
 		)
 		email_id = cursor.fetchone()['id']
 
@@ -199,14 +262,18 @@ def queue_outbound_email(
 				)
 				inbox = cursor.fetchone()
 
-			# Copy email to recipient's inbox
+			# Copy email to recipient's inbox - shares message_id + thread_id with the
+		# Sent row so a reply from the Inbox continues the same chain.
 			cursor.execute(
 				'''INSERT INTO emails
-				   (sender_id, recipient_id, source_email_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read)
-				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+				   (sender_id, recipient_id, source_email_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
+				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
+				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+				           %s, %s, %s, %s, %s)
 				   RETURNING id''',
 				(sender_id, recipient_id_local, email_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
-				 datetime.now(timezone.utc), False)
+				 datetime.now(timezone.utc), False,
+				 message_id, in_reply_to, references, thread_id, subject_normalized_value)
 			)
 			recipient_email_id = cursor.fetchone()['id']
 

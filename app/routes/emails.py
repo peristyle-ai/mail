@@ -76,6 +76,15 @@ def format_email_response(email_dict):
 	folder_name = result.pop('folder_name', None)
 	if folder_name:
 		result['folder'] = folder_name
+	# --- Threading fields (RFC 2822) - additive, only present when set ---
+	# Normalize None to omitted so the JSON is clean for older clients.
+	for threading_field in ('message_id', 'in_reply_to', 'references_chain', 'thread_id'):
+		val = result.get(threading_field)
+		if val is None:
+			result.pop(threading_field, None)
+		elif threading_field == 'thread_id':
+			# Always serialize as a plain UUID string for the API.
+			result[threading_field] = str(val)
 	return result
 
 
@@ -264,6 +273,16 @@ def create_email():
 	        folder_id:
 	          type: integer
 	          description: Folder ID to store email in
+	        in_reply_to:
+	          type: string
+	          description: |
+	            Message-ID of the email being replied to (no angle brackets).
+	            Used for threading.
+	        references:
+	          type: string
+	          description: |
+	            Space-separated Message-ID chain from the email being replied
+	            to (no angle brackets). Used for threading.
 	responses:
 	  201:
 	    description: Email created successfully
@@ -272,6 +291,15 @@ def create_email():
 	      properties:
 	        id:
 	          type: integer
+	        message_id:
+	          type: string
+	          description: |
+	            Generated Message-ID for this email (no angle brackets). Pass
+	            it back as `in_reply_to` when replying.
+	        thread_id:
+	          type: string
+	          format: uuid
+	          description: UUID of the conversation thread.
 	        queued:
 	          type: boolean
 	        cc_count:
@@ -327,6 +355,14 @@ def create_email():
 		msg['Cc'] = ', '.join(normalized_cc)
 	msg.set_content(data.get('body', ''))
 
+	# --- Threading fields (optional; for replies) ---
+	in_reply_to = (data.get('in_reply_to') or '').strip() or None
+	references = (data.get('references') or '').strip() or None
+	# Validate formats: must be bare Message-IDs (no angle brackets).
+	for label, val in (('in_reply_to', in_reply_to), ('references', references)):
+		if val and ('<' in val or '>' in val):
+			return jsonify({'error': f'{label} must not contain angle brackets'}), 400
+
 	try:
 		email_id, queue_ids = queue_outbound_email(
 			sender_id=request.current_user['id'],
@@ -336,10 +372,25 @@ def create_email():
 			subject=data.get('subject', ''),
 			body=data.get('body', ''),
 			message=msg,
-			headers=dict(msg.items())
+			headers=dict(msg.items()),
+			in_reply_to=in_reply_to,
+			references=references,
 		)
+		# Pull the generated Message-ID + thread_id back from the stored Sent row.
+		# queue_outbound_email set them on `msg` (which is what was stored in
+		# raw_email), so they're consistent.
+		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
+		conn = get_db_connection()
+		c = conn.cursor()
+		c.execute('SELECT thread_id FROM emails WHERE id = %s', (email_id,))
+		row = c.fetchone()
+		c.close()
+		conn.close()
+		stored_thread_id = str(row['thread_id']) if row and row['thread_id'] else None
 		return jsonify({
 			'id': email_id,
+			'message_id': stored_message_id,
+			'thread_id': stored_thread_id,
 			'queued': len(queue_ids) > 0,
 			'cc_count': len(normalized_cc)
 		}), 201
@@ -567,8 +618,20 @@ def create_mime_email():
 			conn.close()
 			logger.info(f"Saved attachment: {filename} for email {email_id}")
 		
+		# Pull the generated Message-ID + thread_id back from the stored Sent row.
+		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
+		conn = get_db_connection()
+		c = conn.cursor()
+		c.execute('SELECT thread_id FROM emails WHERE id = %s', (email_id,))
+		row = c.fetchone()
+		c.close()
+		conn.close()
+		stored_thread_id = str(row['thread_id']) if row and row['thread_id'] else None
+
 		return jsonify({
 			'id': email_id,
+			'message_id': stored_message_id,
+			'thread_id': stored_thread_id,
 			'queued': len(queue_ids) > 0,
 			'cc_count': len(normalized_cc),
 			'status': 'pending'
