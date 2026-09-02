@@ -244,6 +244,29 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 - Local delivery creates separate copies: one in sender's Sent folder, one in recipient's Inbox
 - All email endpoints (list, get, delete, move, star, mark read) use folder ownership for authorization
 
+### Email Threading (RFC 2822)
+The schema adds 5 columns to `emails` for Gmail-style conversation threading:
+- `message_id VARCHAR(500)` — this message's `Message-ID` (no angle brackets)
+- `in_reply_to VARCHAR(500)` — parent `Message-ID`
+- `references_chain TEXT` — space-separated `Message-ID` chain (named `_chain` because `references` is a reserved SQL keyword)
+- `thread_id UUID` — same for every message in a conversation
+- `subject_normalized VARCHAR(500)` — used for the subject-fallback bucket key
+
+**Capture** (PR3): every insertion path (SMTP DATA inbound, `/inbound` webhook, `queue_outbound_email`, `POST /api/emails[/{mime}]`) parses RFC 2822 headers and computes `thread_id` via `app.utils.emails.compute_thread_id()`. Priority: References chain → In-Reply-To walk → subject+participants bucket → fresh UUID.
+
+**Backfill** (PR1): `scripts/backfill_threads.py` populates the columns from `raw_email` / `headers` for existing rows. Idempotent; supports `--status`, `--dry-run`, `--limit`, `--batch-size`, `--rebuild`.
+
+**API** (PR4):
+- `GET /api/threads` — collapsed thread list (subject, count, unread, last message, participants, folders). Query: `folder`, `limit`, `offset`, `q`.
+- `GET /api/threads/<id>/messages` — every message in chronological order.
+- `POST /api/threads/<id>/read` — mark all visible messages read.
+- `PATCH /api/threads/<id>/star` — toggle star on all visible messages.
+- `GET /api/emails?thread=<uuid>` — additive filter for the existing list endpoint.
+
+**Visibility rule** (per plan D3): a thread is visible to user U if at least one email in the thread lives in a folder U owns AND U is sender or recipient of that email. External senders (no local folder) cannot see their own sent threads via this auth model — known limitation.
+
+**Plan doc**: `coding_agent/plan_threading.md` (gitignored; local-only).
+
 ### Required Environment Variables
 - `HOST`: Required. The IP address to bind to (e.g., `127.0.0.1`). Server fails to start without it.
 - `DATABASE_URL`: PostgreSQL connection string
