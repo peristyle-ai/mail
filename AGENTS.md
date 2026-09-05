@@ -191,7 +191,8 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   │   └── inbound.py        # Inbound webhook receiver (SMTP2GO, Cloudflare Email Workers) (POST /inbound)
 │   ├── services/            # Long-running infrastructure subsystems (PR1+)
 │   │   ├── embedding_service.py   # HTTP client to the GPU embedding server
-│   │   └── embedding_worker.py    # Daemon that drains embedding_jobs
+│   │   ├── embedding_worker.py    # Daemon that drains embedding_jobs
+│   │   └── search_service.py      # PR2: hybrid semantic + keyword search
 │   └── utils/               # Utility functions
 │       ├── auth.py          # JWT, password hashing
 │       ├── chunking.py      # Sentence-aware email body chunker (PR1)
@@ -220,7 +221,8 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   ├── backfill_threads.py
 │   └── run_embedding_worker.py  # PR1: systemd entrypoint for the embedding worker
 ├── tests/                   # Test suite
-│   └── test_embedding_pipeline.py  # PR1
+│   ├── test_embedding_pipeline.py  # PR1
+│   └── test_search_service.py      # PR2
 ├── db/
 │   ├── schema.sql
 │   └── migrations/
@@ -342,6 +344,58 @@ edge cases + enqueue helper + worker happy path / idempotency / skip
 
 **PR2** (next round): `/api/search` upgrade to combine HNSW cosine +
 GIN trigram + snippet highlighting. PR1 only ships the pipeline.
+
+### Hybrid Search (PR2 of embeddings rollout)
+Upgrades `GET /api/search` to combine semantic similarity (subject +
+chunk cosine via HNSW), GIN trigram keyword matching, and a plain ILIKE
+fallback so newly-created emails (not yet embedded) still show up.
+
+**Service** (`app/services/search_service.py`): owns the search logic.
+Embedding the query once per request (~50-800ms on the local GPU),
+running parallel subject + chunk searches, merging by `email_id`
+(taking the higher score, preserving the chunk snippet when both
+matched). Returns `SearchResult` with `hits` + `mode` (effective mode,
+may be `keyword` if the GPU server was unreachable).
+
+**Scoring weights** (hybrid mode): subject cosine 0.30, chunk cosine
+0.50, trigram 0.20. Plus a flat +0.5 boost for any ILIKE match so
+brand-new emails (no embeddings yet) still rank reasonably.
+
+**Modes** (via `mode=` query param):
+- `hybrid` (default) — subject + chunk + ILIKE, merged
+- `subject` — `emails.subject_embedding` + subject trigram + ILIKE
+- `chunks` — `email_chunks.embedding` + chunk trigram + ILIKE
+- `keyword` — plain `ILIKE %s` on subject + body (no GPU call)
+
+**Response shape** (additive fields, backward-compatible with PR1):
+```json
+{
+  "emails": [ ... ],
+  "snippets": { "<email_id>": "<chunk text around match>" },
+  "scores":   { "<email_id>": 0.842 },
+  "total":    <int>,
+  "page":     <int>,
+  "limit":    <int>,
+  "mode":     "<hybrid|subject|chunks|keyword|list>"
+}
+```
+
+`snippets` only populated for chunk-mode matches (subject-only hits
+return no snippet). `total` is the ILIKE-based count across pages;
+semantic-only hits beyond `total` are bonus results on the current
+page.
+
+**Empty `q`** preserves the legacy no-query behavior (returns the
+user's most recent emails, mode=`list`).
+
+**Fallback** when the embedding server is down: silently degrades to
+`mode=keyword` so search keeps working rather than 500-ing.
+
+**Tests**: `tests/test_search_service.py` (10 tests — snippet
+generation, keyword/subject/chunks modes, hybrid combining, folder
+filter, empty-query, GPU-down fallback) + the 8 existing
+`tests/test_search.py` regression suite (all still pass). Skip when
+`POSTGRES_DB_NAME` / `POSTGRES_PASSWORD_TEST` unset.
 
 ### Required Environment Variables
 - `HOST`: Required. The IP address to bind to (e.g., `127.0.0.1`). Server fails to start without it.

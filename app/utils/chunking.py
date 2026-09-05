@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 
 # Sentence-end punctuation followed by whitespace + capital letter / closing
@@ -30,6 +30,20 @@ _SENT_END = re.compile(r'(?<=[\.!?])\s+(?=[A-Z\'"(\[])')
 
 # Whitespace runs (we split on these for the fallback).
 _WS = re.compile(r'\s+')
+
+# Cap the body length we actually chunk. Most emails are well under
+# 50 KB; the long tail (HTML newsletters with inline CSS / Base64
+# images, accidentally-pasted logs) can hit 2-3 MB and would chew
+# through hundreds of chunks per email. The first 50 KB usually
+# contain the readable content; the rest is payload. Truncate at
+# MAX_BODY_CHARS to keep per-email work bounded.
+MAX_BODY_CHARS = 50_000
+
+# Max chunks per email. Another bound — an email that legitimately
+# needs more than this many 800-char chunks is almost certainly an
+# outlier that should be re-categorized manually. Stops the worker
+# from spending hours on a single row.
+MAX_CHUNKS_PER_EMAIL = 50
 
 
 @dataclass(frozen=True)
@@ -85,6 +99,8 @@ def chunk_email(
     body_html: str = '',
     target_chars: int = 800,
     overlap_chars: int = 100,
+    max_body_chars: int = MAX_BODY_CHARS,
+    max_chunks: int = MAX_CHUNKS_PER_EMAIL,
 ) -> List[TextChunk]:
     """Split an email body into overlapping chunks.
 
@@ -96,6 +112,13 @@ def chunk_email(
             always cut at a sentence boundary when one is available.
         overlap_chars: how much to repeat at the start of the next chunk so
             semantic context isn't lost at the boundary. 0 disables overlap.
+        max_body_chars: hard cap on input length. Anything past this point
+            is truncated — most emails are short, and the long tail is
+            usually HTML payload / Base64 images that don't help semantic
+            search. Bounds the work per email.
+        max_chunks: hard cap on number of chunks produced. Emails that
+            exceed this are returned with the first N chunks (no
+            summarization).
 
     Returns:
         List[TextChunk], 0-indexed, in document order. Empty list when the
@@ -104,6 +127,16 @@ def chunk_email(
     text = body.strip() if body else _strip_html(body_html or '')
     if not text:
         return []
+    if len(text) > max_body_chars:
+        # Truncate at the nearest sentence boundary inside the cap so we
+        # don't slice mid-word. If no boundary, hard-cut.
+        truncated = text[:max_body_chars]
+        boundary = max(truncated.rfind('. '), truncated.rfind('! '),
+                       truncated.rfind('? '))
+        if boundary > max_body_chars // 2:
+            text = truncated[:boundary + 1]
+        else:
+            text = truncated
 
     # Collapse runs of whitespace so chunk size math is predictable.
     text = _WS.sub(' ', text).strip()
@@ -136,6 +169,8 @@ def chunk_email(
         chunk_text = text[cursor:end].strip()
         if chunk_text:
             chunks.append(TextChunk(index=len(chunks), text=chunk_text))
+            if len(chunks) >= max_chunks:
+                break
         if end >= n:
             break
         # Advance with overlap.
