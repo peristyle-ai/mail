@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
+from ..utils.embedding_enqueue import enqueue_embedding_job
 import logging
 import uuid as _uuid
 from email import message_from_string
@@ -830,6 +831,19 @@ def move_email(email_id):
 	conn.commit()
 	cursor.close()
 	conn.close()
+
+	# PR1 — if the move lands the email into a folder that has body
+	# embedding enabled (default Processed/Sent), enqueue an embedding
+	# job. Moving OUT of such a folder doesn't strip the existing chunks
+	# (we keep them — chunks are scoped by email_id, not folder_id).
+	try:
+		enqueue_embedding_job(email_id, folder_id=data['folder_id'],
+		                       user_id=request.current_user['id'],
+		                       reason='folder_move')
+	except Exception as _e:
+		logger.warning("embedding enqueue failed for move of email %s: %s",
+		               email_id, _e)
+
 	return jsonify({'status': 'moved'})
 
 @bp.route('/api/emails/<int:email_id>/delivery-status', methods=['GET'])

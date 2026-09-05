@@ -29,9 +29,18 @@ fi
 # Copy service file with project path filled in
 sed "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PROJECT_ROOT/systemd/mail-server.service" > /etc/systemd/system/mail-server.service
 
+# PR1 — also install the embedding worker (system-level). The unit
+# expects /etc/systemd/system/mail-server-embeddings.service and runs
+# under the same account as mail-server.service.
+if [ -f "$PROJECT_ROOT/systemd/mail-server-embeddings.service" ]; then
+    sed "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PROJECT_ROOT/systemd/mail-server-embeddings.service" > /etc/systemd/system/mail-server-embeddings.service
+    echo "Installed mail-server-embeddings.service"
+fi
+
 # Make scripts executable
 chmod +x "$PROJECT_ROOT/start_mail_server.sh"
 chmod +x "$PROJECT_ROOT/start_servers.py"
+chmod +x "$PROJECT_ROOT/scripts/run_embedding_worker.py"
 
 # Create uploads directory with proper permissions
 mkdir -p "$PROJECT_ROOT/uploads"
@@ -40,9 +49,13 @@ mkdir -p "$PROJECT_ROOT/uploads"
 echo "Reloading systemd..."
 systemctl daemon-reload
 
-# Enable service to start on boot
+# Enable services to start on boot
 echo "Enabling mail-server service..."
 systemctl enable mail-server.service
+if [ -f /etc/systemd/system/mail-server-embeddings.service ]; then
+    echo "Enabling mail-server-embeddings service..."
+    systemctl enable mail-server-embeddings.service
+fi
 
 echo ""
 echo "✓ Installation complete!"

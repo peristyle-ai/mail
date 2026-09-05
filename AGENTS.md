@@ -189,8 +189,13 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │   │   ├── attachments.py
 │   │   ├── blacklist.py      # IP and sender blocklist
 │   │   └── inbound.py        # Inbound webhook receiver (SMTP2GO, Cloudflare Email Workers) (POST /inbound)
+│   ├── services/            # Long-running infrastructure subsystems (PR1+)
+│   │   ├── embedding_service.py   # HTTP client to the GPU embedding server
+│   │   └── embedding_worker.py    # Daemon that drains embedding_jobs
 │   └── utils/               # Utility functions
 │       ├── auth.py          # JWT, password hashing
+│       ├── chunking.py      # Sentence-aware email body chunker (PR1)
+│       ├── embedding_enqueue.py   # Enqueue hook for the embedding worker (PR1)
 │       ├── users.py         # User management
 │       ├── emails.py
 │       ├── folders.py
@@ -209,14 +214,25 @@ Document all API endpoints using flasgger docstrings (YAML format inside triple 
 │       ├── storage.py
 │       └── queue_processor.py
 ├── scripts/                  # Utility scripts
+│   ├── backfill_embeddings.py  # PR1: enqueue historical emails for embedding
 │   ├── backfill_html.py
-│   └── backfill_sender_recipient.py
+│   ├── backfill_sender_recipient.py
+│   ├── backfill_threads.py
+│   └── run_embedding_worker.py  # PR1: systemd entrypoint for the embedding worker
 ├── tests/                   # Test suite
+│   └── test_embedding_pipeline.py  # PR1
 ├── db/
 │   ├── schema.sql
 │   └── migrations/
+│       └── 003_email_chunks_and_embedding_jobs.sql  # PR1
 ├── coding_agent/            # Agent instructions
-├── systemd/user/             # User systemd service
+├── systemd/
+│   ├── mail-server-embeddings.service  # PR1 (system-level)
+│   ├── install.sh
+│   └── user/                # User systemd services
+│       ├── mail-server.service
+│       ├── mail-server-embeddings.service  # PR1
+│       └── install.sh
 ├── start_servers.py          # Start both Flask + SMTP
 ├── init_db.py
 └── requirements.txt
@@ -266,6 +282,66 @@ The schema adds 5 columns to `emails` for Gmail-style conversation threading:
 **Visibility rule** (per plan D3): a thread is visible to user U if at least one email in the thread lives in a folder U owns AND U is sender or recipient of that email. External senders (no local folder) cannot see their own sent threads via this auth model — known limitation.
 
 **Plan doc**: `coding_agent/plan_threading.md` (gitignored; local-only).
+
+### Embedding + Trigram Search (PR1 of embeddings rollout)
+Async pipeline that writes halfvec(1024) embeddings for email bodies and
+GIN trigram indexes for keyword search. Subject embedding is folded into
+the same worker so the live `emails.subject_embedding` column stays in
+sync (per Mal's directive 2026-09-06).
+
+**Tables** (migration `db/migrations/003_email_chunks_and_embedding_jobs.sql`):
+- `email_chunks` — one row per chunk of an email body; carries `content`
+  (snippet) + `embedding halfvec(1024)`. Indexes: HNSW on embedding,
+  GIN trigram on content, partial btree on `folder_id WHERE NOT NULL`.
+- `embedding_jobs` — Postgres-backed queue consumed by the worker.
+  Statuses: `pending`, `processing`, `done`, `failed`, `skipped`.
+
+**Worker** (`app/services/embedding_worker.py`):
+- Long-running single-threaded daemon. Runs as
+  `mail-server-embeddings.service` (systemd --user). See
+  `systemd/user/mail-server-embeddings.service` and `systemd/install.sh`.
+- Entry point: `scripts/run_embedding_worker.py`.
+- Claim: `SELECT FOR UPDATE SKIP LOCKED` on `embedding_jobs` so multiple
+  worker replicas could run concurrently without coordination.
+- Adaptive polling: 1s when busy, ramp to 10s after 30s idle.
+- Per-job retry: 5 attempts max, exponential backoff (5s → 30 min).
+
+**Hooks** at all 5 insertion paths enqueue an embedding job after
+commit (defensive try/except — never blocks the source path):
+1. `app/routes/inbound.py` — POST `/inbound` webhook (SMTP2GO / CF).
+2. `smtp_server/email_storage.py` — SMTP DATA inbound.
+3. `smtp_server/outbound/storage.py` — `queue_outbound_email()` Sent copy + each local Inbox copy.
+4. `app/routes/emails.py` — POST `/api/emails` and `/api/emails/mime` (both call #3).
+5. `app/routes/emails.py` — POST `/api/emails/<id>/move` (enqueue if moved into an enabled folder).
+
+**Configuration** (config.yaml `embedding:` block, env-overridable):
+- `embedding.enabled` — top-level kill switch (default `true`).
+- `embedding.gpu_url` — base URL of `text-embeddings-router`
+  (default `http://127.0.0.1:8080`, env `EMBEDDING_GPU_URL`).
+- `embedding.model` — model id (default `Qwen/Qwen3-Embedding-4B`).
+- `embedding.dimensions` — Matryoshka output dim (default `1024`; halfvec
+  at 2560-dim exceeds pgvector's HNSW page limit — see MEMORY.md
+  pgvector halfvec dim ceiling, 2026-08-16).
+- `embedding.chunk.target_chars` / `overlap_chars` — chunker tuning
+  (defaults `800` / `100`).
+- `embedding.folders.<Name>.enabled` — per-folder opt-in for body
+  chunking. Default config enables `Processed` and `Sent`. Subject
+  embedding always runs.
+
+**Backfill** for existing emails: `scripts/backfill_embeddings.py`.
+Idempotent. Supports `--status`, `--dry-run`, `--limit`, `--only-subject`,
+`--only-body`, `--force-all`. Skips emails whose latest job is `skipped`
+(no-op) so empty subjects don't get re-enqueued forever.
+
+**Chunker** (`app/utils/chunking.py`): sentence-aware sliding window
+with 100-char overlap. Strips HTML when only `body_html` is present.
+
+**Tests**: `tests/test_embedding_pipeline.py` (11 tests — chunker
+edge cases + enqueue helper + worker happy path / idempotency / skip
+/ retry). Skip when `POSTGRES_DB_NAME` / `POSTGRES_PASSWORD_TEST` unset.
+
+**PR2** (next round): `/api/search` upgrade to combine HNSW cosine +
+GIN trigram + snippet highlighting. PR1 only ships the pipeline.
 
 ### Required Environment Variables
 - `HOST`: Required. The IP address to bind to (e.g., `127.0.0.1`). Server fails to start without it.
