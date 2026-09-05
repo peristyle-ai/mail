@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
 from app.utils.auth import token_required
+from app.services.search_service import search as do_search, SearchResult
 
 bp = Blueprint('search', __name__)
 
@@ -13,11 +14,33 @@ def format_email_response(email_dict):
 	return result
 
 
+def _hydrate_emails(email_ids):
+	"""Fetch full email rows for the given IDs, preserving input order."""
+	if not email_ids:
+		return [], {}
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	# Use ANY(%s) for the IN clause.
+	cursor.execute(
+		'''SELECT e.*, f.name AS folder_name, f.user_id AS folder_user_id
+		   FROM emails e
+		   LEFT JOIN folders f ON f.id = e.folder_id
+		   WHERE e.id = ANY(%s)''',
+		(email_ids,),
+	)
+	rows = cursor.fetchall()
+	cursor.close()
+	conn.close()
+	by_id = {r['id']: r for r in rows}
+	ordered = [by_id[i] for i in email_ids if i in by_id]
+	return ordered, by_id
+
+
 @bp.route('/api/search', methods=['GET'])
 @token_required
 def search_emails():
 	"""
-	Search emails with filters
+	Search emails with filters and hybrid semantic + keyword ranking.
 	---
 	tags:
 	  - Search
@@ -27,7 +50,19 @@ def search_emails():
 	  - in: query
 	    name: q
 	    type: string
-	    description: Search query (searches in subject and body)
+	    description: Free-text query.
+	  - in: query
+	    name: mode
+	    type: string
+	    enum: [hybrid, subject, chunks, keyword]
+	    default: hybrid
+	    description: |
+	      Search mode. hybrid (default) combines subject + chunk cosine
+	      similarity with trigram keyword match. subject uses only
+	      subject_embedding (fast, always works). chunks uses only
+	      email_chunks (only finds emails with body chunks — default
+	      Processed/Sent). keyword does plain ILIKE on subject + body
+	      (no embedding call — fastest, no semantic signal).
 	  - in: query
 	    name: folder_id
 	    type: integer
@@ -57,8 +92,24 @@ def search_emails():
 	          type: array
 	          items:
 	            type: object
+	        snippets:
+	          type: object
+	          description: |
+	            Map of email_id -> matching chunk snippet (only set when the
+	            result came from the chunks index; null for subject-only
+	            matches).
+	        scores:
+	          type: object
+	          description: Map of email_id -> combined relevance score.
 	        total:
 	          type: integer
+	          description: |
+	            Number of distinct emails in this page (capped by limit;
+	            for full counts, switch to mode=keyword which counts).
+	        mode:
+	          type: string
+	          description: Effective mode used (may be 'keyword' if the
+	            embedding server was unreachable).
 	        page:
 	          type: integer
 	        limit:
@@ -66,49 +117,129 @@ def search_emails():
 	  401:
 	    description: Unauthorized
 	"""
-	query = request.args.get('q', '')
-	folder_id = request.args.get('folder_id')
+	q = request.args.get('q', '')
+	mode = request.args.get('mode', 'hybrid')
+	if mode not in ('hybrid', 'subject', 'chunks', 'keyword'):
+		return jsonify({'error': 'mode must be one of hybrid|subject|chunks|keyword'}), 400
+	folder_id = request.args.get('folder_id', type=int)
 	flag = request.args.get('flag')
 	page = request.args.get('page', 1, type=int)
 	limit = request.args.get('limit', 20, type=int)
 
-	conn = get_db_connection()
-	cursor = conn.cursor()
+	user_id = request.current_user['id']
 
-	sql = 'SELECT * FROM emails WHERE sender_id = %s'
-	params = [request.current_user['id']]
+	if not q.strip():
+		# Empty query — return the user's recent emails (no ranking).
+		# Preserves the legacy `GET /api/search` no-q behavior.
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		params = [user_id]
+		sql = '''SELECT e.id, e.subject, e.body, e.body_html, e.headers,
+		               e.created_at, e.is_read, e.is_starred, e.folder_id,
+		               e.sender_id, e.recipient_id, e.source_email_id,
+		               e.message_id, e.in_reply_to, e.references_chain,
+		               e.thread_id, e.subject_normalized
+		          FROM emails e
+		          WHERE e.sender_id = %s'''
+		if folder_id:
+			sql += ' AND e.folder_id = %s'
+			params.append(folder_id)
+		if flag == 'read':
+			sql += ' AND e.is_read = TRUE'
+		elif flag == 'unread':
+			sql += ' AND e.is_read = FALSE'
+		elif flag == 'starred':
+			sql += ' AND e.is_starred = TRUE'
+		sql += ' ORDER BY e.created_at DESC LIMIT %s OFFSET %s'
+		params.extend([limit, (page - 1) * limit])
+		cursor.execute(sql, params)
+		emails = cursor.fetchall()
+		cursor.execute('SELECT COUNT(*) AS n FROM emails WHERE sender_id = %s', [user_id])
+		total = cursor.fetchone()['n']
+		cursor.close()
+		conn.close()
+		return jsonify({
+			'emails': [format_email_response(dict(e)) for e in emails],
+			'snippets': {},
+			'scores': {},
+			'total': total,
+			'page': page,
+			'limit': limit,
+			'mode': 'list',
+		})
 
-	if query:
-		sql += ' AND (subject ILIKE %s OR body ILIKE %s)'
-		params.extend(['%' + query + '%', '%' + query + '%'])
-
-	if folder_id:
-		sql += ' AND folder_id = %s'
-		params.append(folder_id)
-
-	if flag == 'read':
-		sql += ' AND is_read = TRUE'
-	elif flag == 'unread':
-		sql += ' AND is_read = FALSE'
-	elif flag == 'starred':
-		sql += ' AND is_starred = TRUE'
-
-	sql += ' ORDER BY created_at DESC'
-	sql += ' LIMIT %s OFFSET %s'
-	params.extend([limit, (page - 1) * limit])
-
-	cursor.execute(sql, params)
-	emails = cursor.fetchall()
-	
-	cursor.execute('SELECT COUNT(*) as total FROM emails WHERE sender_id = %s', [request.current_user['id']])
-	total = cursor.fetchone()['total']
-	
-	cursor.close()
-	conn.close()
-	
+	# Run the hybrid / subject / chunks / keyword search.
+	result: SearchResult = do_search(
+		user_id=user_id,
+		query=q,
+		mode=mode,
+		folder_id=folder_id,
+		flag=flag,
+		page=page,
+		limit=limit,
+	)
+	# Hydrate the email rows for the hits (in score order).
+	emails_ordered, by_id = _hydrate_emails([h.email_id for h in result.hits])
+	emails_out = [format_email_response(dict(e)) for e in emails_ordered]
+	# Attach snippets/scores keyed by email_id.
+	snippets = {}
+	scores = {}
+	for h in result.hits:
+		if h.snippet:
+			snippets[h.email_id] = h.snippet
+		scores[h.email_id] = round(h.score, 6)
+	# Real total across pages — separate COUNT for accuracy. Uses the
+	# same per-folder/flag filter so the count matches the page.
+	total = _count_matches(user_id, q, mode, folder_id, flag)
 	return jsonify({
-		'emails': [format_email_response(dict(e)) for e in emails],
+		'emails': emails_out,
+		'snippets': snippets,
+		'scores': scores,
 		'total': total,
 		'page': page,
-		'limit': limit
+		'limit': limit,
+		'mode': result.mode,
 	})
+
+
+def _count_matches(user_id, query, mode, folder_id, flag):
+	"""Total number of distinct emails matching `query` (ignoring pagination).
+
+	Uses the same per-folder/flag filter as `search()` so the count is
+	consistent with the page. Cost: one extra COUNT(DISTINCT) per
+	request — acceptable for typical search volumes.
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	where, params = _folder_clause(folder_id, flag, user_id)
+	like = '%' + query + '%'
+	cursor.execute(
+		f'''SELECT COUNT(DISTINCT e.id) AS n
+		    FROM emails e
+		    WHERE {where}
+		      AND (e.subject ILIKE %s OR e.body ILIKE %s)''',
+		params + [like, like],
+	)
+	row = cursor.fetchone()
+	cursor.close()
+	conn.close()
+	return row['n'] if row else 0
+
+
+def _folder_clause(folder_id, flag, user_id):
+	"""Shared WHERE-fragment builder for the search + count queries.
+	Mirrors the one inside app/services/search_service.py so the count
+	stays consistent with what the user-facing search actually finds.
+	"""
+	parts = ['e.sender_id = %s']
+	params = [user_id]
+	if folder_id is not None:
+		parts.append('e.folder_id = %s')
+		params.append(folder_id)
+	if flag == 'read':
+		parts.append('e.is_read = TRUE')
+	elif flag == 'unread':
+		parts.append('e.is_read = FALSE')
+	elif flag == 'starred':
+		parts.append('e.is_starred = TRUE')
+	return ' AND '.join(parts), params
