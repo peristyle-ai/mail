@@ -1,0 +1,44 @@
+[Unit]
+Description=Mail Server Embedding Worker (PR1)
+# Stops before mail-server so the queue stays drained on shutdown. Order
+# matters: mail-server inserts rows into embedding_jobs; embeddings worker
+# drains them. On shutdown, embeddings finishes its in-flight job, then
+# mail-server stops accepting new mail.
+After=network.target
+# We don't strictly Require=mail-server.service — embeddings worker can
+# process a backlog independently.
+
+[Service]
+Type=simple
+# WorkingDirectory is filled in by install.sh with the project root path.
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=__PROJECT_ROOT__/.env
+Environment=PYTHONPATH=__PROJECT_ROOT__
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
+Environment=EMBEDDING_WORKER_MODE=loop
+Environment=LOG_LEVEL=INFO
+
+# Force new files (logs, dumps) to be owner-readable only.
+UMask=077
+
+# Same venv as mail-server.
+ExecStart=__PROJECT_ROOT__/venv/bin/python __PROJECT_ROOT__/scripts/run_embedding_worker.py
+
+# Restart policy. Worker is idempotent (upserts chunks, retries failed
+# jobs), so a crash + restart is safe.
+Restart=always
+RestartSec=5
+
+# Logging — journald by default; readable via
+#   journalctl --user -u mail-server-embeddings -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mail-server-embeddings
+
+# Resource limits. Worker is single-threaded + occasional GPU HTTP calls,
+# so memory ceiling is generous. CPU is irrelevant at idle.
+MemoryMax=512M
+TasksMax=16
+
+[Install]
+WantedBy=default.target

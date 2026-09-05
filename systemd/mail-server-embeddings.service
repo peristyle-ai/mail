@@ -1,0 +1,51 @@
+[Unit]
+Description=Mail Server Embedding Worker (PR1)
+After=network.target postgresql.service mail-server.service
+Wants=postgresql.service
+
+# Embedding worker is independent of mail-server in the strict sense
+# (it can drain a backlog without mail-server running), but on a normal
+# boot it should start after mail-server so the queue table exists.
+
+[Service]
+Type=simple
+# User and Group should be set based on your system (uncomment to override)
+# User=your-username
+# Group=your-group
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=__PROJECT_ROOT__/.env
+Environment=PYTHONPATH=__PROJECT_ROOT__
+Environment=PATH=__PROJECT_ROOT__/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
+Environment=EMBEDDING_WORKER_MODE=loop
+Environment=LOG_LEVEL=INFO
+
+# Force new files (logs, dumps) to be owner-readable only.
+UMask=077
+
+ExecStart=__PROJECT_ROOT__/venv/bin/python __PROJECT_ROOT__/scripts/run_embedding_worker.py
+
+# Restart policy. Worker is idempotent (upserts chunks, retries failed
+# jobs), so a crash + restart is safe.
+Restart=always
+RestartSec=5
+
+# Logging — journald by default; readable via
+#   sudo journalctl -u mail-server-embeddings -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mail-server-embeddings
+
+# Resource limits. Worker is single-threaded + occasional GPU HTTP calls.
+MemoryMax=512M
+TasksMax=16
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=__PROJECT_ROOT__/logs
+
+[Install]
+WantedBy=multi-user.target

@@ -105,3 +105,51 @@ api:
   host: "0.0.0.0"
   port: 5003
   debug: false
+
+# --------------------------------------------------------------------------
+# Embedding pipeline (PR1)
+# --------------------------------------------------------------------------
+# Async embedding + trigram search pipeline. Driven by:
+#   * the live insertion-path enqueue helper
+#     (app/utils/embedding_enqueue.py) — fires on inbound SMTP, POST /inbound,
+#     POST /api/emails, POST /api/emails/<id>/move
+#   * the embedding worker (systemd --user service
+#     mail-server-embeddings.service, scripts/run_embedding_worker.py)
+#
+# Defaults: body chunks are embedded only for emails that land in
+# Processed or Sent. Subject embedding always runs (kept consistent with
+# the new async process per Mal's directive 2026-09-06).
+#
+# Override any of these via env vars:
+#   EMBEDDING_ENABLED, EMBEDDING_GPU_URL, EMBEDDING_GPU_HOST/PORT,
+#   EMBEDDING_MODEL, EMBEDDING_DIMENSIONS
+embedding:
+  enabled: true
+
+  # Local text-embeddings-router (text-embeddings-router --model-id=
+  # Qwen/Qwen3-Embedding-4B --port=8080). PID 5086 on localhost.
+  gpu_url: "http://127.0.0.1:8080"
+  model: "Qwen/Qwen3-Embedding-4B"
+
+  # 1024-dim Matryoshka vectors. halfvec(1024) = 2048 bytes/row, safely
+  # under pgvector's HNSW page-entry limit (MEMORY.md 2026-08-16).
+  dimensions: 1024
+
+  chunk:
+    # Approximate target per chunk in characters. Splits prefer sentence
+    # boundaries inside the target window.
+    target_chars: 800
+    # Overlap (chars) repeated at the start of each subsequent chunk so
+    # semantic context isn't lost at the boundary.
+    overlap_chars: 100
+
+  # Per-folder opt-in. Any folder NOT listed here has body embedding
+  # skipped (subject still gets embedded). Folders are matched
+  # case-insensitively against `folders.name`.
+  folders:
+    Processed:
+      enabled: true
+    Sent:
+      enabled: true
+    # Inbox, Drafts, Trash, Archive, Tests, Forwarded — all default off.
+    # To enable: add `FolderName: { enabled: true }` below.

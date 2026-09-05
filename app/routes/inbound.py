@@ -17,6 +17,7 @@ from ..utils.emails import (
     extract_threading_headers,
     normalize_subject,
 )
+from ..utils.embedding_enqueue import enqueue_embedding_job
 from ..utils.webhooks import verify_webhook_secret
 
 inbound_bp = Blueprint('inbound', __name__)
@@ -554,6 +555,15 @@ def receive_inbound_webhook():
 			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')
 		)
+
+		# PR1 — enqueue async embedding job (subject always; body only when
+		# the folder is in the configured set). Failures here MUST NOT
+		# affect the inbound webhook response — log and move on.
+		try:
+			enqueue_embedding_job(email_id, folder_id=inbox_id,
+			                       user_id=recipient_id, reason='inbound_webhook')
+		except Exception as _e:
+			logger.warning("embedding enqueue failed for inbound email %s: %s", email_id, _e)
 
 		# Process attachments from raw MIME if present
 		if raw_mime:

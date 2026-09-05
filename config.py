@@ -325,6 +325,82 @@ class MailServerConfig:
         if env_val is not None:
             return env_val.lower() == 'true'
         return self._get_nested('api', 'debug', default=False)
+
+    # ---- Embedding settings (PR1) -----------------------------------------
+    #
+    # Drives both the live insertion-path enqueue helper
+    # (app/utils/embedding_enqueue.py) and the worker
+    # (app/services/embedding_worker.py).
+    #
+    # Per-folder opt-in: a folder is body-chunked only if its name appears
+    # in `embedding.folders` with `enabled: true`. Subject embedding always
+    # runs (per Mal's directive 2026-09-06 — keep `emails.subject_embedding`
+    # populated via the same async pipeline).
+
+    @property
+    def embedding_enabled(self) -> bool:
+        """Top-level kill switch. When false, no jobs are enqueued."""
+        env_val = os.getenv('EMBEDDING_ENABLED')
+        if env_val is not None:
+            return env_val.lower() == 'true'
+        return self._get_nested('embedding', 'enabled', default=False)
+
+    @property
+    def embedding_gpu_url(self) -> str:
+        """Base URL of the local text-embeddings-router."""
+        env_val = os.getenv('EMBEDDING_GPU_URL')
+        if env_val:
+            return env_val
+        host = os.getenv('EMBEDDING_GPU_HOST', '127.0.0.1')
+        port = os.getenv('EMBEDDING_GPU_PORT', '8080')
+        return f"http://{host}:{port}"
+
+    @property
+    def embedding_model(self) -> str:
+        """Model id passed to /v1/embeddings."""
+        return (
+            os.environ.get('EMBEDDING_MODEL')
+            or self._get_nested('embedding', 'model', default='Qwen/Qwen3-Embedding-4B')
+        )
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Output dim. 1024 fits pgvector halfvec HNSW safely
+        (MEMORY.md pgvector halfvec dim ceiling, 2026-08-16)."""
+        env_val = os.getenv('EMBEDDING_DIMENSIONS')
+        if env_val:
+            return int(env_val)
+        return int(self._get_nested('embedding', 'dimensions', default=1024))
+
+    @property
+    def embedding_chunk_target_chars(self) -> int:
+        return int(self._get_nested('embedding', 'chunk', 'target_chars', default=800))
+
+    @property
+    def embedding_chunk_overlap_chars(self) -> int:
+        return int(self._get_nested('embedding', 'chunk', 'overlap_chars', default=100))
+
+    @property
+    def embedding_folders(self) -> Dict[str, Any]:
+        """Per-folder embedding opt-in map. Example:
+
+            embedding:
+              folders:
+                Processed: { enabled: true }
+                Sent:      { enabled: true }
+                Archive:   { enabled: false }
+        """
+        block = self._get_nested('embedding', 'folders', default={})
+        return block if isinstance(block, dict) else {}
+
+    def embedding_folder_enabled(self, folder_name: str) -> bool:
+        """True if `folder_name` is listed in config with enabled=true."""
+        if not self.embedding_enabled:
+            return False
+        folders = self.embedding_folders
+        if folder_name in folders and isinstance(folders[folder_name], dict):
+            return bool(folders[folder_name].get('enabled', False))
+        return False
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -374,6 +450,17 @@ class MailServerConfig:
                 'port': self.api_port,
                 'debug': self.api_debug,
             },
+            'embedding': {
+                'enabled': self.embedding_enabled,
+                'gpu_url': self.embedding_gpu_url,
+                'model': self.embedding_model,
+                'dimensions': self.embedding_dimensions,
+                'chunk': {
+                    'target_chars': self.embedding_chunk_target_chars,
+                    'overlap_chars': self.embedding_chunk_overlap_chars,
+                },
+                'folders': self.embedding_folders,
+            },
         }
     
     def __str__(self) -> str:
@@ -410,6 +497,13 @@ class MailServerConfig:
             f"API Server:",
             f"  Host: {self.api_host}:{self.api_port}",
             f"  Debug: {self.api_debug}",
+            "",
+            f"Embedding (PR1):",
+            f"  Enabled: {self.embedding_enabled}",
+            f"  GPU URL: {self.embedding_gpu_url}",
+            f"  Model:   {self.embedding_model} (dims={self.embedding_dimensions})",
+            f"  Chunk:   target={self.embedding_chunk_target_chars} overlap={self.embedding_chunk_overlap_chars}",
+            f"  Folders: {', '.join(sorted(self.embedding_folders.keys())) or '(none)'}",
         ]
         return '\n'.join(lines)
 
