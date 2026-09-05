@@ -20,6 +20,7 @@ from app.utils.emails import (
     extract_threading_headers,
     normalize_subject,
 )
+from app.utils.embedding_enqueue import enqueue_embedding_job
 
 logger = logging.getLogger(__name__)
 
