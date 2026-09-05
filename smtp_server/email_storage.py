@@ -17,6 +17,7 @@ from app.utils.emails import (
     extract_threading_headers,
     normalize_subject,
 )
+from app.utils.embedding_enqueue import enqueue_embedding_job
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +322,15 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
             (email_id, user_id, 'to')
         )
+
+        # PR1 — enqueue async embedding job (subject always; body only when
+        # the folder is in the configured set). Defensive try/except — a
+        # failure here must NOT prevent the SMTP DATA response.
+        try:
+            enqueue_embedding_job(email_id, folder_id=folder_id,
+                                   user_id=user_id, reason='smtp_data')
+        except Exception as _e:
+            logger.warning("embedding enqueue failed for SMTP email %s: %s", email_id, _e)
 
         # Save any attachments
         save_attachments(message, email_id, user_id, conn, cursor)

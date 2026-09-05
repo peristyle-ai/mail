@@ -292,6 +292,18 @@ def queue_outbound_email(
 				(recipient_email_id, recipient_id_local, recipient_type)
 			)
 
+			# PR1 — enqueue embedding for this local Inbox copy. Per-folder
+			# policy runs against the recipient's folder (Inbox by default,
+			# which is disabled — so subject-only embedding happens here).
+			try:
+				enqueue_embedding_job(recipient_email_id,
+				                       folder_id=inbox['id'],
+				                       user_id=recipient_id_local,
+				                       reason='outbound_inbox_copy')
+			except Exception as _e:
+				logger.warning("embedding enqueue (inbox copy %s) failed: %s",
+				               recipient_email_id, _e)
+
 			logger.info(f"Stored local copy of email {email_id} for {to_address} ({recipient_type})")
 
 		# Record sender as a recipient against the sent email (type='to')
@@ -302,6 +314,18 @@ def queue_outbound_email(
 		)
 
 		conn.commit()
+
+		# PR1 — enqueue async embedding jobs for the Sent copy + each
+		# local-recipient Inbox copy. Done after commit so a transient
+		# enqueue failure doesn't roll back the send. Failures MUST NOT
+		# affect the outbound send response.
+		try:
+			enqueue_embedding_job(email_id, folder_id=sent_folder_id,
+			                       user_id=sender_id, reason='outbound_sent')
+		except Exception as _e:
+			logger.warning("embedding enqueue (sent) failed for email %s: %s",
+			               email_id, _e)
+
 		logger.info(f"Successfully queued email {email_id} with {len(queue_ids)} external recipients ({len(cc_addresses)} cc)")
 		return email_id, queue_ids
 		

@@ -101,3 +101,26 @@ Then reload:
 systemctl --user daemon-reload
 systemctl --user restart mail-server
 ```
+
+## Embedding Worker (PR1)
+
+The embeddings rollout adds a second service:
+
+```
+mail-server-embeddings.service
+```
+
+It runs the embedding worker (`scripts/run_embedding_worker.py`) that
+drains the `embedding_jobs` queue populated by the mail-server's
+insertion-path hooks. Subject embeddings (for the `emails.subject_embedding`
+column) always run; body chunking runs only for emails in folders listed
+under `embedding.folders` in `config.yaml` (default: Processed + Sent).
+
+```
+systemctl --user status mail-server-embeddings
+journalctl --user -u mail-server-embeddings -f
+systemctl --user restart mail-server-embeddings
+```
+
+Both services are installed by `install.sh`. See `AGENTS.md` → "Embedding
++ Trigram Search (PR1)" for the full design.
