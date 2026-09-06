@@ -47,6 +47,13 @@ SNIPPET_MAX_CHARS = 240
 # (for trigram mode). Falls back to the chunk head when no exact match.
 SNIPPET_CONTEXT_CHARS = 80
 
+# Module-level counter for embedding-server failures. Bumped every time
+# `search()` falls back to keyword mode because the GPU server was
+# unreachable. Operators can grep journalctl for the WARNING line (which
+# includes the running total) or expose `gpu_fallback_count` via a debug
+# endpoint to monitor GPU health.
+gpu_fallback_count = 0
+
 
 @dataclass
 class SearchHit:
@@ -63,6 +70,12 @@ class SearchResult:
     mode: str = 'hybrid'
     query_embedding_ms: float = 0.0
     db_query_ms: float = 0.0
+    # Total distinct emails that would match (across pages). For modes
+    # that require the query embedding, this is computed alongside the
+    # search itself (no extra embed call). For keyword mode, it's the
+    # ILIKE COUNT. None when the count wasn't computed (e.g. keyword
+    # mode with empty query).
+    total: Optional[int] = None
 
 
 def _make_snippet(content: str, query: str) -> Tuple[str, Optional[str]]:
@@ -140,7 +153,17 @@ def search(
     try:
         query_vec = _embed_query(service, query)
     except EmbeddingError as e:
-        logger.warning("query embedding failed: %s — falling back to keyword mode", e)
+        global gpu_fallback_count
+        gpu_fallback_count += 1
+        # Log at WARNING with the running total so a sustained outage
+        # shows up clearly in journalctl (every line shows the
+        # incrementing count). grep for `embedding server unavailable`
+        # to count occurrences.
+        logger.warning(
+            "embedding server unavailable, falling back to keyword mode "
+            "(q=%r, total_fallbacks=%d): %s",
+            query[:60], gpu_fallback_count, e,
+        )
         mode = 'keyword'
         result.mode = 'keyword'
         query_vec = None
@@ -160,7 +183,167 @@ def search(
         hits = _hybrid_search(user_id, query_vec, query, folder_id, flag, page, limit)
     result.db_query_ms = (time.monotonic() - t0) * 1000
     result.hits = hits
+
+    # Total across pages — mirrors what each mode actually matches.
+    # Uses the same query_vec (no extra embed call) for semantic modes.
+    try:
+        if mode == 'keyword':
+            result.total = _count_keyword(user_id, query, folder_id, flag)
+        elif mode == 'subject':
+            result.total = _count_subject(user_id, query_vec, query, folder_id, flag)
+        elif mode == 'chunks':
+            result.total = _count_chunks(user_id, query_vec, query, folder_id, flag)
+        else:
+            result.total = _count_hybrid(user_id, query_vec, query, folder_id, flag)
+    except Exception as e:
+        # Don't fail the search if counting fails — log and move on.
+        # Clients can still paginate by incrementing page until hits
+        # are empty.
+        logger.warning("search count failed: %s", e)
+        result.total = None
+
     return result
+
+
+def _count_keyword(user_id, query, folder_id, flag):
+    """ILIKE-only count. Single index scan, no embedding needed."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    where, params = _folder_clause(folder_id, flag, user_id)
+    like = '%' + query + '%'
+    cursor.execute(
+        f'''SELECT COUNT(*) AS n
+            FROM emails e
+            WHERE {where}
+              AND (e.subject ILIKE %s OR e.body ILIKE %s)''',
+        params + [like, like],
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row['n'] if row else 0
+
+
+def _count_subject(user_id, query_vec, query, folder_id, flag):
+    """Count emails that would match subject cosine + trigram + ILIKE."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    where, params = _folder_clause(folder_id, flag, user_id)
+    like = '%' + query + '%'
+    # Placeholders: query_vec, like (subject ILIKE), like (body ILIKE),
+    # then WHERE params (sender_id, optional folder_id).
+    sql_params = [query_vec, like, like] + params
+    cursor.execute(
+        f'''SELECT COUNT(DISTINCT e.id) AS n
+            FROM emails e
+            WHERE {where}
+              AND ((e.subject_embedding IS NOT NULL
+                    AND (1 - (e.subject_embedding <=> %s::halfvec)) > 0.3)
+                   OR e.subject ILIKE %s
+                   OR e.body ILIKE %s)''',
+        sql_params,
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row['n'] if row else 0
+
+
+def _count_chunks(user_id, query_vec, query, folder_id, flag):
+    """Count distinct emails that would match chunk cosine + trigram + ILIKE."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    where_parts = ['emails.sender_id = %s']
+    params = [user_id]
+    if folder_id is not None:
+        where_parts.append('emails.folder_id = %s')
+        params.append(folder_id)
+    if flag == 'read':
+        where_parts.append('emails.is_read = TRUE')
+    elif flag == 'unread':
+        where_parts.append('emails.is_read = FALSE')
+    elif flag == 'starred':
+        where_parts.append('emails.is_starred = TRUE')
+    where = ' AND '.join(where_parts)
+    like = '%' + query + '%'
+    # Placeholders: query_vec, like (content ILIKE), then WHERE params.
+    sql_params = [query_vec, like] + params
+    cursor.execute(
+        f'''SELECT COUNT(DISTINCT emails.id) AS n
+            FROM emails
+            JOIN email_chunks c ON c.email_id = emails.id
+            WHERE {where}
+              AND ((c.embedding IS NOT NULL
+                    AND (1 - (c.embedding <=> %s::halfvec)) > 0.3)
+                   OR c.content ILIKE %s)''',
+        sql_params,
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row['n'] if row else 0
+
+
+def _count_hybrid(user_id, query_vec, query, folder_id, flag):
+    """Union of subject + chunk match counts. One query, no duplication.
+
+    Uses two CTEs that mirror the actual hybrid search criteria
+    (subject cosine + trigram + ILIKE on subject, same on chunks).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Build the shared filter once; reuse for both branches.
+    where_parts = ['emails.sender_id = %s']
+    params = [user_id]
+    if folder_id is not None:
+        where_parts.append('emails.folder_id = %s')
+        params.append(folder_id)
+    if flag == 'read':
+        where_parts.append('emails.is_read = TRUE')
+    elif flag == 'unread':
+        where_parts.append('emails.is_read = FALSE')
+    elif flag == 'starred':
+        where_parts.append('emails.is_starred = TRUE')
+    base_where = ' AND '.join(where_parts)
+    like = '%' + query + '%'
+    # Placeholder order (all CTEs share one parameter stream):
+    #   1..N. params  (subject_hits WHERE: sender_id, folder_id)
+    #   N+1. query_vec  (subject cosine)
+    #   N+2. like       (subject ILIKE)
+    #   N+3. like       (body ILIKE)
+    #   N+4..2N. params (chunk_hits WHERE: sender_id, folder_id)
+    #   2N+1. query_vec (chunk cosine)
+    #   2N+2. like      (chunk content ILIKE)
+    sql_params = (params + [query_vec, like, like]
+                  + params + [query_vec, like])
+    cursor.execute(
+        f'''WITH subject_hits AS (
+                SELECT e.id FROM emails e
+                WHERE {base_where.replace('emails.', 'e.')}
+                  AND ((e.subject_embedding IS NOT NULL
+                        AND (1 - (e.subject_embedding <=> %s::halfvec)) > 0.3)
+                       OR e.subject ILIKE %s
+                       OR e.body ILIKE %s)
+            ),
+            chunk_hits AS (
+                SELECT emails.id FROM emails
+                JOIN email_chunks c ON c.email_id = emails.id
+                WHERE {base_where}
+                  AND ((c.embedding IS NOT NULL
+                        AND (1 - (c.embedding <=> %s::halfvec)) > 0.3)
+                       OR c.content ILIKE %s)
+            )
+            SELECT COUNT(*) FROM (
+                SELECT id FROM subject_hits
+                UNION
+                SELECT id FROM chunk_hits
+            ) u''',
+        sql_params,
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row['count'] if row else 0
 
 
 def _folder_clause(folder_id: Optional[int], flag: Optional[str], user_id: int) -> Tuple[str, list]:

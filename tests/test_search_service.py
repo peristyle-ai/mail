@@ -358,6 +358,50 @@ class TestSearchIntegration(unittest.TestCase):
         # The keyword-mode fallback should still find the literal match.
         self.assertEqual(len(r.hits), 1)
 
+    def test_total_counts_actual_matches(self):
+        """`SearchResult.total` reflects the real count across pages,
+        not just the page size. Includes semantic matches when they exist."""
+        from app.services.search_service import search
+        uid, fid, _ = _make_user_and_folder('Sent')
+        # 3 emails match the literal query.
+        for i in range(3):
+            _make_email(uid, fid, f'Project kickoff {i}',
+                        'body content about the project')
+        # 1 email doesn't match the literal but its body chunk mentions it.
+        eid_extra = _make_email(uid, fid, 'Irrelevant subject', 'body')
+        _make_chunk(eid_extra, fid, 0,
+                    'We discussed the project kickoff at length.')
+        r = search(user_id=uid, query='project kickoff', mode='hybrid', limit=1)
+        # Page size is 1 (we asked limit=1), but total should be > 1.
+        self.assertEqual(len(r.hits), 1)
+        self.assertIsNotNone(r.total)
+        self.assertGreaterEqual(r.total, 3)
+
+    def test_total_bumps_gpu_fallback_counter(self):
+        """When the GPU server is down, fallback increments the module-
+        level counter and logs a WARNING."""
+        # Import via the module (not the symbol) to make sure we read
+        # the same counter that search() mutates — Python's import
+        # semantics for module-level globals can confuse this otherwise.
+        import app.services.search_service as ss
+        from app.services.search_service import search
+        from app.services.embedding_service import EmbeddingError
+
+        before = ss.gpu_fallback_count
+
+        class BrokenService:
+            def embed_one(self, *_a, **_kw):
+                raise EmbeddingError('GPU down')
+            def close(self):
+                pass
+
+        uid, fid, _ = _make_user_and_folder('Sent')
+        _make_email(uid, fid, 'Subject', 'body')
+        r = search(user_id=uid, query='test', mode='hybrid', limit=5,
+                   embedding_service=BrokenService())
+        self.assertEqual(r.mode, 'keyword')
+        self.assertEqual(ss.gpu_fallback_count, before + 1)
+
 
 if __name__ == '__main__':
     unittest.main()
