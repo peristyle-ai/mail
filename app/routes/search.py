@@ -188,9 +188,11 @@ def search_emails():
 		if h.snippet:
 			snippets[h.email_id] = h.snippet
 		scores[h.email_id] = round(h.score, 6)
-	# Real total across pages — separate COUNT for accuracy. Uses the
-	# same per-folder/flag filter so the count matches the page.
-	total = _count_matches(user_id, q, mode, folder_id, flag)
+	# `result.total` comes from the search service (mirrors the same
+	# criteria the page actually matches — semantic + trigram + ILIKE
+	# per mode). Falls back to None on count error; the route still
+	# returns the page even if total is unknown.
+	total = result.total if result.total is not None else len(emails_out)
 	return jsonify({
 		'emails': emails_out,
 		'snippets': snippets,
@@ -200,46 +202,3 @@ def search_emails():
 		'limit': limit,
 		'mode': result.mode,
 	})
-
-
-def _count_matches(user_id, query, mode, folder_id, flag):
-	"""Total number of distinct emails matching `query` (ignoring pagination).
-
-	Uses the same per-folder/flag filter as `search()` so the count is
-	consistent with the page. Cost: one extra COUNT(DISTINCT) per
-	request — acceptable for typical search volumes.
-	"""
-	conn = get_db_connection()
-	cursor = conn.cursor()
-	where, params = _folder_clause(folder_id, flag, user_id)
-	like = '%' + query + '%'
-	cursor.execute(
-		f'''SELECT COUNT(DISTINCT e.id) AS n
-		    FROM emails e
-		    WHERE {where}
-		      AND (e.subject ILIKE %s OR e.body ILIKE %s)''',
-		params + [like, like],
-	)
-	row = cursor.fetchone()
-	cursor.close()
-	conn.close()
-	return row['n'] if row else 0
-
-
-def _folder_clause(folder_id, flag, user_id):
-	"""Shared WHERE-fragment builder for the search + count queries.
-	Mirrors the one inside app/services/search_service.py so the count
-	stays consistent with what the user-facing search actually finds.
-	"""
-	parts = ['e.sender_id = %s']
-	params = [user_id]
-	if folder_id is not None:
-		parts.append('e.folder_id = %s')
-		params.append(folder_id)
-	if flag == 'read':
-		parts.append('e.is_read = TRUE')
-	elif flag == 'unread':
-		parts.append('e.is_read = FALSE')
-	elif flag == 'starred':
-		parts.append('e.is_starred = TRUE')
-	return ' AND '.join(parts), params
