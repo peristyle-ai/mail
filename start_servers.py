@@ -123,12 +123,22 @@ def main():
         print("✓ Outbound Queue Processor started")
         print()
         
-        # Start Flask in a separate thread (non-daemon to catch errors)
+        # Start Flask in a daemon thread. Daemon=True is critical for
+        # clean SIGTERM shutdown: the main thread signal handler does
+        # sys.exit(0), which raises SystemExit. If the Flask thread
+        # were non-daemon, Python would block waiting for it -- but
+        # werkzeug app.run() never returns on its own, so the process
+        # would hang until SIGKILL. Pre-fix, every restart needed
+        # kill -9 after ~80s in deactivating (stop-sigterm).
+        #
+        # The "catch errors" goal is preserved by the is_alive()
+        # check below -- the main loop still detects Flask thread
+        # death and exits the process.
         logger.info(f"Starting Flask API on port {args.flask_port}...")
         flask_thread = threading.Thread(
             target=run_flask_app,
             args=(args.flask_port, args.debug),
-            daemon=False  # Changed to non-daemon so we can catch errors
+            daemon=True
         )
         flask_thread.start()
         time.sleep(2)  # Give Flask time to start
