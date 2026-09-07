@@ -244,6 +244,12 @@ def queue_outbound_email(
 				)
 				queue_id = cursor.fetchone()['id']
 				queue_ids.append(queue_id)
+				# Also record in email_recipients with user_id=NULL (external recipient has no local user)
+				cursor.execute(
+					'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
+					   VALUES (%s, NULL, %s, %s)''',
+					(email_id, to_address, recipient_type)
+				)
 				logger.info(f"Queued email {email_id} for delivery to {to_address} ({recipient_type})")
 
 		# Handle local recipients (Inbox copies + email_recipients rows)
@@ -251,9 +257,9 @@ def queue_outbound_email(
 			if recipient_id_local == sender_id:
 				# Sender self-send; record as 'to'/'cc' against the sent email only
 				cursor.execute(
-					'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
-					   VALUES (%s, %s, %s)''',
-					(email_id, recipient_id_local, recipient_type)
+					'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
+					   VALUES (%s, %s, %s, %s)''',
+					(email_id, recipient_id_local, to_address, recipient_type)
 				)
 				continue
 
@@ -288,9 +294,9 @@ def queue_outbound_email(
 
 			# Add recipient entry (type preserved)
 			cursor.execute(
-				'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
-				   VALUES (%s, %s, %s)''',
-				(recipient_email_id, recipient_id_local, recipient_type)
+				'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
+				   VALUES (%s, %s, %s, %s)''',
+				(recipient_email_id, recipient_id_local, to_address, recipient_type)
 			)
 
 			# PR1 — enqueue embedding for this local Inbox copy. Per-folder
@@ -307,12 +313,7 @@ def queue_outbound_email(
 
 			logger.info(f"Stored local copy of email {email_id} for {to_address} ({recipient_type})")
 
-		# Record sender as a recipient against the sent email (type='to')
-		cursor.execute(
-			'''INSERT INTO email_recipients (email_id, user_id, recipient_type)
-			   VALUES (%s, %s, %s)''',
-			(email_id, sender_id, 'to')
-		)
+
 
 		conn.commit()
 

@@ -3,11 +3,30 @@ from app.utils.auth import token_required
 from ..db import get_db_connection
 from ..utils.embedding_enqueue import enqueue_embedding_job
 import logging
+import os
 import uuid as _uuid
 from email import message_from_string
 from email.message import EmailMessage
 from email.policy import default
 from email.utils import getaddresses
+
+def _sanitize_string(s):
+	"""Strip control chars / null bytes that break headers or SQL."""
+	if s is None:
+		return ''
+	if not isinstance(s, str):
+		s = str(s)
+	import re as _re
+	# Remove null bytes and other control chars (except \n \r \t)
+	return _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+
+
+def _strip_newlines(s):
+	"""Replace \n and \r with space (for headers that must be single-line)."""
+	if s is None:
+		return ''
+	return str(s).replace('\r', ' ').replace('\n', ' ')
+
 
 bp = Blueprint('emails', __name__)
 logger = logging.getLogger(__name__)
@@ -603,54 +622,91 @@ def create_mime_email():
 
 		logger.info(f"MIME email queued: ID={email_id}, recipients={to_addresses} (cc={len(normalized_cc)})")
 		
-		# Extract and save attachments from MIME content
+		# Extract and save attachments from MIME content (matching the inbound attachment pattern)
 		from email.policy import default
 		import io
-		
+		import uuid as uuid_mod
+
+		UPLOADS_DIR = os.path.join(
+			os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads'
+		)
+		os.makedirs(UPLOADS_DIR, exist_ok=True)
+
 		parsed_msg = message_from_string(mime_content, policy=default)
-		
+
 		for part in parsed_msg.walk():
 			content_disposition = part.get('Content-Disposition', '')
 			content_type = part.get_content_type()
-			
+
 			# Skip multipart containers
 			if part.get_content_maintype() == 'multipart':
 				continue
-			
+
 			# Only include parts with attachment content-disposition and a filename
 			filename = part.get_filename()
 			if not filename:
 				continue
-			
+
 			# Skip inline parts that are the body (text, html)
 			if 'inline' in content_disposition:
 				continue
-			
-			# Get content type and size
+
 			content_type = part.get_content_type()
-			
+
 			# Get decoded payload
 			try:
 				payload = part.get_payload(decode=True)
-				if payload:
-					file_size = len(payload)
-				else:
+				if not payload:
 					continue
-			except:
+				file_size = len(payload)
+			except Exception:
 				continue
-			
-			# Save attachment record (without file content - stored in MIME)
+
+			# Sanitize filename + truncate to schema limit (255 chars)
+			try:
+				clean_filename = _sanitize_string(_strip_newlines(filename))[:255]
+			except Exception:
+				clean_filename = 'attachment.bin'
+			if not clean_filename:
+				continue
+			if len(content_type or '') > 255:
+				content_type = 'application/octet-stream'
+
+			# Save the file to disk (mirrors the inbound attachment pattern)
+			unique_filename = str(uuid_mod.uuid4())
+			ext = clean_filename.rsplit('.', 1)[-1].lower() if '.' in clean_filename else ''
+			if ext:
+				unique_filename += '.' + ext
+			file_path = os.path.join(UPLOADS_DIR, unique_filename)
+
+			try:
+				with open(file_path, 'wb') as f:
+					f.write(payload)
+			except Exception as e:
+				logger.error(f"Failed to write attachment {clean_filename}: {e}")
+				continue
+
+			# Insert attachment record (with file_path so download endpoint serves the file)
 			conn = get_db_connection()
 			cursor = conn.cursor()
-			cursor.execute(
-				'''INSERT INTO attachments (email_id, file_name, content_type, file_size, created_at)
-				   VALUES (%s, %s, %s, %s, NOW()) RETURNING id''',
-				(email_id, filename, content_type, file_size)
-			)
-			conn.commit()
-			cursor.close()
-			conn.close()
-			logger.info(f"Saved attachment: {filename} for email {email_id}")
+			try:
+				cursor.execute(
+					'''INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path, created_at)
+					   VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id''',
+					(email_id, clean_filename, content_type, file_size, file_path)
+				)
+				attachment_id = cursor.fetchone()['id']
+				conn.commit()
+				logger.info(f"Saved attachment: {clean_filename} ({file_size} bytes, id={attachment_id}) for email {email_id}")
+			except Exception as e:
+				conn.rollback()
+				logger.error(f"Failed to insert attachment record for {clean_filename}: {e}")
+				# Roll back the file write if DB insert failed
+				if os.path.exists(file_path):
+					os.remove(file_path)
+			finally:
+				cursor.close()
+				conn.close()
 		
 		# Pull the generated Message-ID + thread_id back from the stored Sent row.
 		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
@@ -1241,12 +1297,17 @@ def list_thread_messages(thread_id):
 		if not _user_can_see_thread(cursor, user_id, thread_id):
 			return jsonify({'error': 'thread not found'}), 404
 
+		# Use DISTINCT ON (e.id) to pick ONE recipient per email (preferring 'to' type, local user).
+		# Without DISTINCT, emails with N recipients would appear N times (cartesian product of email_recipients JOIN).
 		cursor.execute(
 			"""
-			SELECT e.id, e.message_id, e.in_reply_to, e.subject, e.body,
+			SELECT DISTINCT ON (e.id)
+			       e.id, e.message_id, e.in_reply_to, e.subject, e.body,
 			       e.body_html, e.is_read, e.is_starred, e.created_at,
 			       s.email AS sender_email, s.name AS sender_name,
-			       r.email AS recipient_email, r.name AS recipient_name,
+			       er.recipient_email AS recipient_email,
+			       er.recipient_type AS recipient_type,
+			       r.email AS recipient_user_email, r.name AS recipient_user_name,
 			       f.name AS folder_name
 			FROM emails e
 			JOIN folders f ON e.folder_id = f.id
@@ -1255,7 +1316,10 @@ def list_thread_messages(thread_id):
 			LEFT JOIN users r ON er.user_id = r.id
 			WHERE e.thread_id = %s
 			  AND f.user_id = %s
-			ORDER BY e.created_at ASC, e.id ASC
+			ORDER BY e.id ASC,
+			         CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
+			         CASE WHEN er.user_id IS NOT NULL THEN 0 ELSE 1 END,
+			         er.id ASC
 		""",
 			(thread_id, user_id),
 		)
@@ -1270,9 +1334,13 @@ def list_thread_messages(thread_id):
 					'email': r['sender_email'],
 					'name': r['sender_name'],
 				},
+				# Primary recipient is from email_recipients.recipient_email (handles external too).
+				# Name comes from users table only when it's a local user (recipient_user_email == recipient_email).
 				'recipient': {
 					'email': r['recipient_email'],
-					'name': r['recipient_name'],
+					'name': (r['recipient_user_name']
+					         if r.get('recipient_user_email') and r['recipient_user_email'] == r['recipient_email']
+					         else None),
 				} if r['recipient_email'] else None,
 				'folder': r['folder_name'],
 				'subject': r['subject'],
