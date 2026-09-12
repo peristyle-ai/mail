@@ -98,10 +98,13 @@ def main():
     queue_processor = None
     
     try:
-        ensure_attachments_schema()
-        ensure_email_copy_schema()
-        ensure_domains_table()
-        seed_local_domains()
+        try:
+            ensure_attachments_schema()
+            ensure_email_copy_schema()
+            ensure_domains_table()
+            seed_local_domains()
+        except Exception as e:
+            print(f"schema init skipped: {type(e).__name__}: {e}")
 
         # Start SMTP server
         print(f"Starting SMTP Server on {args.smtp_host}:{args.smtp_port}...")
