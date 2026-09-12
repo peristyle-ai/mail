@@ -14,11 +14,19 @@ from app.db import ensure_attachments_schema, ensure_domains_table, ensure_email
 
 def create_app():
 	app = Flask(__name__)
-	ensure_attachments_schema()
-	ensure_email_copy_schema()
-	ensure_domains_table()
-	seed_local_domains()
-	
+	# Schema-init helpers need DDL privileges (postgres role).
+	# The runtime role `mail_external` doesn't have those, so we tolerate
+	# permission errors here. For a fresh DB, run bin/setup_db.py once
+	# as the postgres role to initialize the schema.
+	for fn in (ensure_attachments_schema, ensure_email_copy_schema,
+	           ensure_domains_table, seed_local_domains):
+		try:
+			fn()
+		except Exception as e:
+			app.logger.warning(
+				f"schema init step {fn.__name__} skipped: {type(e).__name__}: {e}"
+			)
+
 	app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 	app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # 50MB max form field size
 	app.request_class.max_form_memory_size = 50 * 1024 * 1024  # 50MB per Werkzeug
