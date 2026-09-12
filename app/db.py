@@ -45,6 +45,11 @@ def ensure_attachments_schema():
 		cursor.execute('ALTER TABLE attachments ADD COLUMN IF NOT EXISTS file_name VARCHAR(255)')
 		cursor.execute('ALTER TABLE attachments ADD COLUMN IF NOT EXISTS file_path VARCHAR(500)')
 		conn.commit()
+except psycopg2.errors.InsufficientPrivilege:
+		conn.rollback()
+		import logging
+		logging.getLogger(__name__).warning('ensure_attachments_schema skipped (InsufficientPrivilege — schema was set up by a privileged session; runtime role has DML only)')
+
 	finally:
 		try:
 			cursor.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
@@ -65,6 +70,11 @@ def ensure_email_copy_schema():
 		cursor.execute('ALTER TABLE emails ADD COLUMN IF NOT EXISTS source_email_id INTEGER REFERENCES emails(id) ON DELETE SET NULL')
 		cursor.execute('CREATE INDEX IF NOT EXISTS idx_emails_source_email_id ON emails(source_email_id)')
 		conn.commit()
+except psycopg2.errors.InsufficientPrivilege:
+		conn.rollback()
+		import logging
+		logging.getLogger(__name__).warning('ensure_email_copy_schema skipped (InsufficientPrivilege — schema was set up by a privileged session)')
+
 	finally:
 		try:
 			cursor.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
@@ -122,6 +132,11 @@ def ensure_domains_table():
 		cursor.execute('CREATE INDEX IF NOT EXISTS idx_domains_relay_provider ON domains(relay_provider)')
 		cursor.execute('CREATE INDEX IF NOT EXISTS idx_domains_relay_verified ON domains(relay_verified)')
 		conn.commit()
+except psycopg2.errors.InsufficientPrivilege:
+		conn.rollback()
+		import logging
+		logging.getLogger(__name__).warning('ensure_domains_table skipped (InsufficientPrivilege — schema was set up by a privileged session; runtime role has DML only)')
+
 	finally:
 		try:
 			cursor.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
@@ -183,6 +198,11 @@ def seed_local_domains():
 			)
 
 		conn.commit()
+except psycopg2.errors.InsufficientPrivilege:
+		conn.rollback()
+		import logging
+		logging.getLogger(__name__).warning('seed_local_domains skipped (InsufficientPrivilege — schema was set up by a privileged session)')
+
 	finally:
 		try:
 			cursor.execute('SELECT pg_advisory_unlock(%s)', (lock_id,))
