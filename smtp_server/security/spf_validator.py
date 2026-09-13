@@ -2,6 +2,7 @@
 SPF (Sender Policy Framework) Validator
 
 Validates that the sending IP is authorized to send email for the sender's domain.
+Uses pyspf for full RFC 7208 compliance, with a simplified fallback.
 """
 
 import logging
@@ -11,6 +12,16 @@ from typing import Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
+# Try to import pyspf for full RFC 7208 compliance.
+# Fall back to the simplified implementation if not available.
+try:
+	import spf as _pyspf
+	_HAS_PYSPF = True
+	logger.info("pyspf available — using full RFC 7208 SPF validation")
+except ImportError:
+	_HAS_PYSPF = False
+	logger.info("pyspf not available — using simplified SPF validation")
+
 
 class SPFValidator:
     """
@@ -19,13 +30,16 @@ class SPFValidator:
     Checks if the sending IP is authorized to send email for the sender's domain
     by querying DNS SPF records.
     
+    Uses pyspf (RFC 7208 compliant) when available, otherwise falls back to a
+    simplified mechanism parser.
+    
     Note: SPF validation is bypassed for localhost and internal/private IP addresses
     since SPF is meant to protect against external spoofing, not internal testing.
     """
     
     def __init__(self, reject_on_fail: bool = True):
         self.reject_on_fail = reject_on_fail
-        logger.info(f"SPF validator initialized (reject_on_fail={reject_on_fail})")
+        logger.info(f"SPF validator initialized (reject_on_fail={reject_on_fail}, pyspf={_HAS_PYSPF})")
     
     def _is_internal_ip(self, ip: str) -> bool:
         """
@@ -85,30 +99,13 @@ class SPFValidator:
             # Extract domain from email
             domain = sender_email.split('@')[-1] if '@' in sender_email else sender_email
             
-            # Query SPF record
-            spf_record = self._get_spf_record(domain)
+            # Use pyspf for full RFC 7208 compliance when available
+            if _HAS_PYSPF:
+                return self._validate_pyspf(sender_ip, sender_email, domain)
             
-            if not spf_record:
-                logger.debug(f"No SPF record for {domain}")
-                return 'none', 'No SPF record found'
+            # Fallback to simplified implementation
+            return self._validate_simplified(sender_ip, sender_email, domain)
             
-            # Simple SPF check (mechanism parsing would need more code)
-            # For now, just check if the IP matches common mechanisms
-            result = self._check_spf_mechanisms(spf_record, sender_ip, domain)
-            
-            if result == 'pass':
-                logger.info(f"SPF pass: {sender_email} from {sender_ip}")
-                return 'pass', 'SPF validation passed'
-            elif result == 'fail':
-                if self.reject_on_fail:
-                    logger.warning(f"SPF fail (rejected): {sender_email} from {sender_ip}")
-                    return 'fail', 'SPF validation failed - sender not authorized'
-                else:
-                    logger.warning(f"SPF fail (flagged): {sender_email} from {sender_ip}")
-                    return 'softfail', 'SPF validation failed but not enforced'
-            else:
-                return result, f'SPF result: {result}'
-                
         except dns.resolver.NXDOMAIN:
             return 'none', 'Domain does not exist'
         except dns.resolver.NoAnswer:
@@ -116,6 +113,65 @@ class SPFValidator:
         except Exception as e:
             logger.error(f"SPF validation error: {e}")
             return 'temperror', f'SPF validation error: {str(e)}'
+    
+    def _validate_pyspf(self, sender_ip: str, sender_email: str, domain: str) -> Tuple[str, Optional[str]]:
+        """Validate SPF using pyspf (full RFC 7208 compliance)."""
+        try:
+            result, explanation = _pyspf.check2(sender_ip, sender_email, domain)
+            
+            # Map pyspf results to our result format
+            if result == 'pass':
+                logger.info(f"SPF pass: {sender_email} from {sender_ip}")
+                return 'pass', explanation
+            elif result == 'fail':
+                if self.reject_on_fail:
+                    logger.warning(f"SPF fail (rejected): {sender_email} from {sender_ip}: {explanation}")
+                    return 'fail', f'SPF validation failed: {explanation}'
+                else:
+                    logger.warning(f"SPF fail (flagged): {sender_email} from {sender_ip}: {explanation}")
+                    return 'softfail', f'SPF validation failed but not enforced: {explanation}'
+            elif result == 'softfail':
+                logger.info(f"SPF softfail: {sender_email} from {sender_ip}: {explanation}")
+                return 'softfail', explanation
+            elif result == 'neutral':
+                return 'neutral', explanation
+            elif result == 'none':
+                return 'none', explanation
+            elif result == 'temperror':
+                return 'temperror', explanation
+            elif result == 'permerror':
+                return 'permerror', explanation
+            else:
+                return result, explanation
+                
+        except Exception as e:
+            logger.error(f"pyspf validation error: {e}")
+            return 'temperror', f'SPF validation error: {str(e)}'
+    
+    def _validate_simplified(self, sender_ip: str, sender_email: str, domain: str) -> Tuple[str, Optional[str]]:
+        """Fallback simplified SPF validation (original implementation)."""
+        # Query SPF record
+        spf_record = self._get_spf_record(domain)
+        
+        if not spf_record:
+            logger.debug(f"No SPF record for {domain}")
+            return 'none', 'No SPF record found'
+        
+        # Simple SPF check (mechanism parsing would need more code)
+        result = self._check_spf_mechanisms(spf_record, sender_ip, domain)
+        
+        if result == 'pass':
+            logger.info(f"SPF pass: {sender_email} from {sender_ip}")
+            return 'pass', 'SPF validation passed'
+        elif result == 'fail':
+            if self.reject_on_fail:
+                logger.warning(f"SPF fail (rejected): {sender_email} from {sender_ip}")
+                return 'fail', 'SPF validation failed - sender not authorized'
+            else:
+                logger.warning(f"SPF fail (flagged): {sender_email} from {sender_ip}")
+                return 'softfail', 'SPF validation failed but not enforced'
+        else:
+            return result, f'SPF result: {result}'
     
     def _get_spf_record(self, domain: str) -> Optional[str]:
         """Query DNS for SPF record."""

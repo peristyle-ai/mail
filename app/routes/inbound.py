@@ -19,6 +19,7 @@ from ..utils.emails import (
 )
 from ..utils.embedding_enqueue import enqueue_embedding_job
 from ..utils.webhooks import verify_webhook_secret
+from ..utils.rate_limiter import check_rate_limit, record_attempt
 
 inbound_bp = Blueprint('inbound', __name__)
 logger = logging.getLogger(__name__)
@@ -32,8 +33,6 @@ MAX_EMAIL_LENGTH = 320
 MAX_SENDER_IP_LENGTH = 45
 RATE_LIMIT_PER_IP = 60
 RATE_LIMIT_WINDOW = 60
-
-_inbound_rate_limits: dict = {}
 
 SMTP2GO_WEBHOOK_SECRET = None
 
@@ -81,16 +80,11 @@ def _validate_sender_ip(ip_str: str) -> str:
 
 
 def _check_rate_limit(ip_address: str) -> bool:
-	now = time.time()
-	cutoff = now - RATE_LIMIT_WINDOW
-	_inbound_rate_limits.setdefault(ip_address, [])
-	_inbound_rate_limits[ip_address] = [
-		t for t in _inbound_rate_limits[ip_address] if t > cutoff
-	]
-	if len(_inbound_rate_limits[ip_address]) >= RATE_LIMIT_PER_IP:
-		return False
-	_inbound_rate_limits[ip_address].append(now)
-	return True
+	key = f'inbound:{ip_address}'
+	allowed, reason = check_rate_limit(key, RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW)
+	if allowed:
+		record_attempt(key)
+	return allowed
 
 
 def _verify_smtp2go_signature(request_data: bytes, signature: str) -> bool:

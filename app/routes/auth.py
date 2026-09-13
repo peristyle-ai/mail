@@ -3,6 +3,7 @@ import time
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
 from ..utils import get_user_by_email, create_user, hash_password, verify_password, generate_jwt
+from ..utils.rate_limiter import check_rate_limit, record_attempt, clear_attempts
 
 bp = Blueprint('auth', __name__)
 
@@ -10,33 +11,9 @@ FAILED_LOGIN_WINDOW_SECONDS = 15 * 60
 FAILED_LOGIN_LIMIT_PER_IP = 20
 FAILED_LOGIN_LIMIT_PER_IP_EMAIL = 5
 
-_failed_login_attempts = {}
-_login_lockouts = {}
-
 
 def _normalize_email(email):
 	return (email or '').strip().lower()
-
-
-def _prune_login_attempts(key, now):
-	cutoff = now - FAILED_LOGIN_WINDOW_SECONDS
-	attempts = _failed_login_attempts.get(key, [])
-	attempts = [attempt for attempt in attempts if attempt > cutoff]
-	if attempts:
-		_failed_login_attempts[key] = attempts
-	else:
-		_failed_login_attempts.pop(key, None)
-	return attempts
-
-
-def _is_login_locked(key, now):
-	locked_until = _login_lockouts.get(key)
-	if not locked_until:
-		return False
-	if locked_until <= now:
-		_login_lockouts.pop(key, None)
-		return False
-	return True
 
 
 def _get_login_keys(client_ip, email):
@@ -48,26 +25,19 @@ def _get_login_keys(client_ip, email):
 
 
 def _record_login_failure(client_ip, email):
-	now = time.time()
 	for key, limit in _get_login_keys(client_ip, email):
-		attempts = _prune_login_attempts(key, now)
-		attempts.append(now)
-		_failed_login_attempts[key] = attempts
-		if len(attempts) >= limit:
-			_login_lockouts[key] = now + FAILED_LOGIN_WINDOW_SECONDS
+		record_attempt(key)
 
 
 def _clear_login_failures(client_ip, email):
 	for key, _ in _get_login_keys(client_ip, email):
-		_failed_login_attempts.pop(key, None)
-		_login_lockouts.pop(key, None)
+		clear_attempts(key)
 
 
 def _is_request_locked(client_ip, email):
-	now = time.time()
-	for key, _ in _get_login_keys(client_ip, email):
-		_prune_login_attempts(key, now)
-		if _is_login_locked(key, now):
+	for key, limit in _get_login_keys(client_ip, email):
+		allowed, reason = check_rate_limit(key, limit, FAILED_LOGIN_WINDOW_SECONDS)
+		if not allowed:
 			return True
 	return False
 

@@ -74,13 +74,12 @@ class OutboundSMTPSender:
 				logger.warning(f"Could not resolve to IPv4: {e}, using {mail_server}")
 				ipv4_host = mail_server
 			
-			# When using IP address, we can't verify TLS cert (it won't match the IP)
-			# So disable verification in that case
-			if using_ip_address:
-				logger.info("Using IP address - disabling TLS certificate verification")
-				verify_cert = False
-			else:
-				verify_cert = self.verify_cert
+			# TLS certificate verification strategy:
+			# - When connecting to a hostname, verify the cert matches that hostname (default).
+			# - When connecting to an IP, we still verify the cert but against the original
+			#   hostname (not the IP). This prevents MITM while allowing IPv4 connections.
+			# - Only disable verification as an explicit opt-in via verify_cert=False.
+			verify_cert = self.verify_cert
 			
 			# Create connection using IPv4
 			with smtplib.SMTP(ipv4_host, port, timeout=self.timeout) as server:
@@ -94,10 +93,33 @@ class OutboundSMTPSender:
 				if port in (25, 587) and server.has_extn('STARTTLS'):
 					try:
 						context = ssl.create_default_context()
-						if not verify_cert:  # Use local variable
+						if not verify_cert:
+							# Explicit opt-in to skip verification (not recommended)
 							context.check_hostname = False
 							context.verify_mode = ssl.CERT_NONE
+						elif using_ip_address:
+							# Verify cert against the original hostname, not the IP.
+							# We connect to the IP but check the cert's CN/SAN against
+							# the hostname from the MX record.
+							context.check_hostname = False  # We do manual hostname check below
+							context.verify_mode = ssl.CERT_REQUIRED
 						server.starttls(context=context)
+						
+						# Manual hostname verification when connecting via IP
+						if using_ip_address and verify_cert:
+							peer_cert = server.sock.getpeercert()
+							if peer_cert:
+								import ssl as _ssl
+								try:
+									_ssl.match_hostname(peer_cert, mail_server)
+								except Exception as cert_err:
+									logger.warning(
+										f"TLS cert hostname mismatch: {mail_server} "
+										f"not in cert {peer_cert.get('subject', '')}: {cert_err}"
+									)
+									if self.tls_required:
+										return False, f"TLS cert hostname mismatch for {mail_server}"
+						
 						server.ehlo()  # Re-identify after TLS
 						logger.debug(f"STARTTLS established with {mail_server}")
 					except Exception as e:

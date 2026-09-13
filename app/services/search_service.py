@@ -214,6 +214,7 @@ def _count_keyword(user_id, query, folder_id, flag):
     cursor.execute(
         f'''SELECT COUNT(*) AS n
             FROM emails e
+            JOIN folders f ON e.folder_id = f.id
             WHERE {where}
               AND (e.subject ILIKE %s OR e.body ILIKE %s)''',
         params + [like, like],
@@ -236,6 +237,7 @@ def _count_subject(user_id, query_vec, query, folder_id, flag):
     cursor.execute(
         f'''SELECT COUNT(DISTINCT e.id) AS n
             FROM emails e
+            JOIN folders f ON e.folder_id = f.id
             WHERE {where}
               AND ((e.subject_embedding IS NOT NULL
                     AND (1 - (e.subject_embedding <=> %s::halfvec)) > 0.3)
@@ -253,7 +255,7 @@ def _count_chunks(user_id, query_vec, query, folder_id, flag):
     """Count distinct emails that would match chunk cosine + trigram + ILIKE."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    where_parts = ['emails.sender_id = %s']
+    where_parts = ['f.user_id = %s']
     params = [user_id]
     if folder_id is not None:
         where_parts.append('emails.folder_id = %s')
@@ -271,6 +273,7 @@ def _count_chunks(user_id, query_vec, query, folder_id, flag):
     cursor.execute(
         f'''SELECT COUNT(DISTINCT emails.id) AS n
             FROM emails
+            JOIN folders f ON emails.folder_id = f.id
             JOIN email_chunks c ON c.email_id = emails.id
             WHERE {where}
               AND ((c.embedding IS NOT NULL
@@ -293,7 +296,7 @@ def _count_hybrid(user_id, query_vec, query, folder_id, flag):
     conn = get_db_connection()
     cursor = conn.cursor()
     # Build the shared filter once; reuse for both branches.
-    where_parts = ['emails.sender_id = %s']
+    where_parts = ['f.user_id = %s']
     params = [user_id]
     if folder_id is not None:
         where_parts.append('emails.folder_id = %s')
@@ -319,6 +322,7 @@ def _count_hybrid(user_id, query_vec, query, folder_id, flag):
     cursor.execute(
         f'''WITH subject_hits AS (
                 SELECT e.id FROM emails e
+                JOIN folders f ON e.folder_id = f.id
                 WHERE {base_where.replace('emails.', 'e.')}
                   AND ((e.subject_embedding IS NOT NULL
                         AND (1 - (e.subject_embedding <=> %s::halfvec)) > 0.3)
@@ -327,6 +331,7 @@ def _count_hybrid(user_id, query_vec, query, folder_id, flag):
             ),
             chunk_hits AS (
                 SELECT emails.id FROM emails
+                JOIN folders f ON emails.folder_id = f.id
                 JOIN email_chunks c ON c.email_id = emails.id
                 WHERE {base_where}
                   AND ((c.embedding IS NOT NULL
@@ -347,8 +352,16 @@ def _count_hybrid(user_id, query_vec, query, folder_id, flag):
 
 
 def _folder_clause(folder_id: Optional[int], flag: Optional[str], user_id: int) -> Tuple[str, list]:
-    """Build the shared WHERE clause (everything except the query signal)."""
-    where = ['e.sender_id = %s']
+    """Build the shared WHERE clause (everything except the query signal).
+    
+    Uses folder ownership (f.user_id) rather than sender_id, matching the
+    authorization pattern used throughout the rest of the application.
+    This ensures users can search both sent AND received emails.
+    
+    The caller must ensure the FROM clause includes:
+        JOIN folders f ON e.folder_id = f.id
+    """
+    where = ['f.user_id = %s']
     params: list = [user_id]
     if folder_id is not None:
         where.append('e.folder_id = %s')
@@ -371,6 +384,7 @@ def _keyword_search(user_id, query, folder_id, flag, page, limit):
     cursor.execute(
         f'''SELECT e.id, e.subject, NULL::text AS snippet, 1.0::float AS score, NULL::text AS match
             FROM emails e
+            JOIN folders f ON e.folder_id = f.id
             WHERE {where} AND (e.subject ILIKE %s OR e.body ILIKE %s)
             ORDER BY e.created_at DESC
             LIMIT %s OFFSET %s''',
@@ -425,6 +439,7 @@ def _subject_search(user_id, query_vec, query, folder_id, flag, page, limit):
                    NULL::text AS snippet,
                    NULL::text AS match
             FROM emails e
+            JOIN folders f ON e.folder_id = f.id
             WHERE {where}
               AND (e.subject_embedding IS NOT NULL
                    OR e.subject ILIKE %s
@@ -450,7 +465,7 @@ def _chunks_search(user_id, query_vec, query, folder_id, flag, page, limit):
     # The chunks table joins to emails via email_id. Build the WHERE
     # against emails directly (no `e.` alias since the inner FROM uses
     # explicit JOINs).
-    where_parts = ['emails.sender_id = %s']
+    where_parts = ['f.user_id = %s']
     params: list = [user_id]
     if folder_id is not None:
         where_parts.append('emails.folder_id = %s')
@@ -479,6 +494,7 @@ def _chunks_search(user_id, query_vec, query, folder_id, flag, page, limit):
                        )::float AS combined_score
                 FROM email_chunks c
                 JOIN emails ON emails.id = c.email_id
+                JOIN folders f ON emails.folder_id = f.id
                 WHERE {where}
                   AND (c.embedding IS NOT NULL OR c.content ILIKE %s)
             ),

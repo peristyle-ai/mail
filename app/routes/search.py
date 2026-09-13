@@ -140,7 +140,8 @@ def search_emails():
 		               e.message_id, e.in_reply_to, e.references_chain,
 		               e.thread_id, e.subject_normalized
 		          FROM emails e
-		          WHERE e.sender_id = %s'''
+		          JOIN folders f ON e.folder_id = f.id
+		          WHERE f.user_id = %s'''
 		if folder_id:
 			sql += ' AND e.folder_id = %s'
 			params.append(folder_id)
@@ -154,7 +155,7 @@ def search_emails():
 		params.extend([limit, (page - 1) * limit])
 		cursor.execute(sql, params)
 		emails = cursor.fetchall()
-		cursor.execute('SELECT COUNT(*) AS n FROM emails WHERE sender_id = %s', [user_id])
+		cursor.execute('SELECT COUNT(*) AS n FROM emails e JOIN folders f ON e.folder_id = f.id WHERE f.user_id = %s', [user_id])
 		total = cursor.fetchone()['n']
 		cursor.close()
 		conn.close()
