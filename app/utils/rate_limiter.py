@@ -108,10 +108,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		_ensure_table(cursor)
-		
 		if not _table_exists(cursor):
-			# Fall back to in-memory
 			return _memory_check_rate_limit(key, max_attempts, window_seconds)
 		
 		_prune_old_attempts(cursor, key, window_seconds)
@@ -137,6 +134,9 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 		
 		conn.commit()
 		return True, None
+	except Exception as e:
+		logger.debug(f"check_rate_limit DB error, using memory fallback: {e}")
+		return _memory_check_rate_limit(key, max_attempts, window_seconds)
 	finally:
 		cursor.close()
 		conn.close()
@@ -156,7 +156,6 @@ def record_attempt(key: str):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		_ensure_table(cursor)
 		if _table_exists(cursor):
 			cursor.execute(
 				'INSERT INTO rate_limit_attempts (key) VALUES (%s)',
@@ -165,6 +164,9 @@ def record_attempt(key: str):
 			conn.commit()
 		else:
 			_memory_attempts.setdefault(key, []).append(time.time())
+	except Exception as e:
+		logger.debug(f"record_attempt DB error, using memory fallback: {e}")
+		_memory_attempts.setdefault(key, []).append(time.time())
 	finally:
 		cursor.close()
 		conn.close()
@@ -183,6 +185,9 @@ def clear_attempts(key: str):
 			conn.commit()
 		else:
 			_memory_attempts.pop(key, None)
+	except Exception as e:
+		logger.debug(f"clear_attempts DB error, using memory fallback: {e}")
+		_memory_attempts.pop(key, None)
 	finally:
 		cursor.close()
 		conn.close()
