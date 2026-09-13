@@ -71,6 +71,31 @@ def create_app():
 	
 	Swagger(app, config=swagger_config)
 	
+	# Protect Swagger UI and API spec with JWT auth.
+	# /docs and /api/spec.json now require a valid Bearer token.
+	from app.utils.auth import token_required as _token_required
+	from flask import request as _request, jsonify as _jsonify
+	
+	@app.before_request
+	def _protect_docs():
+		if _request.path in ('/docs', '/api/spec.json', '/flasgger_static'):
+			# Allow static assets without auth (CSS/JS for the Swagger UI page)
+			if _request.path.startswith('/flasgger_static'):
+				return None
+			# Check for JWT token
+			token = None
+			auth_header = _request.headers.get('Authorization', '')
+			if auth_header.startswith('Bearer '):
+				token = auth_header[7:]
+			if not token:
+				return _jsonify({'error': 'Authentication required for API documentation'}), 401
+			try:
+				from app.utils.auth import decode_jwt
+				decode_jwt(token)
+			except Exception:
+				return _jsonify({'error': 'Invalid token'}), 401
+		return None
+	
 	app.register_blueprint(routes_bp)
 	app.register_blueprint(auth_bp)
 	app.register_blueprint(emails_bp)

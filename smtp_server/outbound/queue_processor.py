@@ -16,6 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db_connection, ensure_domains_table
+from app.utils.crypto import decrypt_field
 from .mx_lookup import MXLookup
 from .delivery import OutboundSMTPSender
 from .smtp2go_delivery import SMTP2GODelivery
@@ -461,7 +462,7 @@ class OutboundQueueProcessor:
 					relay_host=server_host,
 					relay_port=server_port,
 					username=relay_config['relay_username'],
-					password=relay_config['relay_password_encrypted']
+					password=decrypt_field(relay_config['relay_password_encrypted'])
 				)
 				success, message = relay_sender.deliver(from_address, [recipient], msg)
 			else:
