@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
-from .db import get_db_connection
+from .db import get_db_connection, set_current_user_id
 
 def hash_password(password):
     return generate_password_hash(password, method='pbkdf2:sha256')
@@ -59,6 +59,9 @@ def token_required(f):
 
         if not current_user:
             return jsonify({'error': 'User not found'}), 401
+
+        # Set thread-local user ID so get_db_connection() can set the RLS GUC
+        set_current_user_id(current_user_id)
 
         request.current_user = current_user
         return f(*args, **kwargs)
