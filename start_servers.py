@@ -89,13 +89,20 @@ def main():
     parser.add_argument('--smtp-host', default=SERVER_HOST, help='SMTP bind address (default: HOST from .env)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--tls-cert', default=os.environ.get('TLS_CERT', ''),
-                        help='Path to TLS certificate (enables HTTPS)')
+                        help='Path to TLS certificate (enables HTTPS on Flask API)')
     parser.add_argument('--tls-key', default=os.environ.get('TLS_KEY', ''),
-                        help='Path to TLS private key (enables HTTPS)')
+                        help='Path to TLS private key (enables HTTPS on Flask API)')
+    parser.add_argument('--smtp-tls-cert', default=os.environ.get('SMTP_TLS_CERT_PATH', ''),
+                        help='Path to SMTP TLS certificate (enables STARTTLS)')
+    parser.add_argument('--smtp-tls-key', default=os.environ.get('SMTP_TLS_KEY_PATH', ''),
+                        help='Path to SMTP TLS private key (enables STARTTLS)')
+    parser.add_argument('--require-starttls', action='store_true',
+                        default=os.environ.get('SMTP_REQUIRE_STARTTLS', '').lower() == 'true',
+                        help='Reject SMTP commands before STARTTLS upgrade')
     
     args = parser.parse_args()
     
-    # Build SSL context if cert+key provided
+    # Build Flask SSL context if cert+key provided
     ssl_context = None
     if args.tls_cert and args.tls_key:
         import ssl
@@ -105,7 +112,20 @@ def main():
             raise FileNotFoundError(f"TLS key not found: {args.tls_key}")
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(args.tls_cert, args.tls_key)
-        print(f"TLS enabled: {args.tls_cert}")
+        print(f"Flask TLS enabled: {args.tls_cert}")
+    
+    # Build SMTP TLS context — reuse the same cert as Flask by default
+    smtp_tls_context = None
+    smtp_cert = args.smtp_tls_cert or args.tls_cert
+    smtp_key = args.smtp_tls_key or args.tls_key
+    if smtp_cert and smtp_key:
+        import ssl as _ssl
+        if os.path.exists(smtp_cert) and os.path.exists(smtp_key):
+            smtp_tls_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+            smtp_tls_context.load_cert_chain(smtp_cert, smtp_key)
+            print(f"SMTP STARTTLS enabled: {smtp_cert}")
+        else:
+            print(f"SMTP TLS cert/key not found — SMTP without TLS")
     
     print("="*70)
     print("Mail Server Startup")
@@ -125,13 +145,16 @@ def main():
             print(f"schema init skipped: {type(e).__name__}: {e}")
 
         # Start SMTP server
-        print(f"Starting SMTP Server on {args.smtp_host}:{args.smtp_port}...")
+        smtp_tls_note = ' (STARTTLS)' if smtp_tls_context else ''
+        print(f"Starting SMTP Server on {args.smtp_host}:{args.smtp_port}{smtp_tls_note}...")
         smtp_controller = start_smtp_server(
             host=args.smtp_host,
             port=args.smtp_port,
-            debug=args.debug
+            debug=args.debug,
+            tls_context=smtp_tls_context,
+            require_starttls=args.require_starttls,
         )
-        print(f"✓ SMTP Server started on {args.smtp_host}:{args.smtp_port}")
+        print(f"✓ SMTP Server started on {args.smtp_host}:{args.smtp_port}{smtp_tls_note}")
         print()
         
         # Start outbound queue processor
@@ -173,6 +196,7 @@ def main():
         print()
         
         scheme = 'https' if ssl_context else 'http'
+        smtp_scheme = 'smtps' if args.require_starttls else 'smtp+starttls' if smtp_tls_context else 'smtp'
         print("="*70)
         print("Servers are running!")
         print("="*70)
@@ -180,7 +204,7 @@ def main():
         print("Access Points:")
         print(f"  - Swagger UI:    {scheme}://localhost:{args.flask_port}/docs")
         print(f"  - Flask API:     {scheme}://localhost:{args.flask_port}/api/")
-        print(f"  - SMTP Server:   {args.smtp_host}:{args.smtp_port}")
+        print(f"  - SMTP Server:   {args.smtp_host}:{args.smtp_port} ({smtp_scheme})")
         print()
         print("Test Commands:")
         print(f"  Local:  python scripts/send_test_email.py --server 127.0.0.1 --port {args.smtp_port}")
