@@ -11,11 +11,80 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'zip'}
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
+# Map extensions to expected MIME type prefixes for content validation.
+# A file whose detected MIME type doesn't match its extension is rejected.
+_EXTENSION_MIME_MAP = {
+	'txt': ['text/plain'],
+	'pdf': ['application/pdf'],
+	'png': ['image/png'],
+	'jpg': ['image/jpeg'],
+	'jpeg': ['image/jpeg'],
+	'gif': ['image/gif'],
+	'doc': ['application/msword'],
+	'docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+	'zip': ['application/zip', 'application/x-zip-compressed'],
+}
+
+# Dangerous MIME types that are always rejected regardless of extension.
+_BLOCKED_MIME_TYPES = {
+	'application/x-executable',
+	'application/x-msdownload',
+	'application/x-msdos-program',
+	'application/x-dosexec',
+	'application/x-sh',
+	'application/x-shellscript',
+	'application/x-bat',
+	'application/x-msi',
+}
+
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
 _attachments_has_user_id = None
 
 def allowed_file(filename):
 	return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def _detect_mime_type(file_path: str) -> str:
+	"""Detect MIME type using python-magic (libmagic). Falls back to 'application/octet-stream'."""
+	try:
+		import magic
+		return magic.from_file(file_path, mime=True)
+	except Exception as e:
+		logger.warning(f"MIME detection failed for {file_path}: {e}")
+		return 'application/octet-stream'
+
+def validate_file_content(file_path: str, filename: str) -> tuple:
+	"""Validate that file content matches its extension.
+	
+	Returns (is_valid, detected_mime, error_message).
+	"""
+	ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+	detected_mime = _detect_mime_type(file_path)
+
+	# Always block dangerous types
+	if detected_mime in _BLOCKED_MIME_TYPES:
+		return False, detected_mime, f'File type {detected_mime} is not allowed'
+
+	# If we can't determine the type, allow it (octet-stream is generic)
+	if detected_mime == 'application/octet-stream':
+		return True, detected_mime, None
+
+	# Check if detected MIME matches the extension
+	expected_mimes = _EXTENSION_MIME_MAP.get(ext, [])
+	if expected_mimes:
+		for expected in expected_mimes:
+			if detected_mime == expected or detected_mime.startswith(expected.split('/')[0] + '/'):
+				return True, detected_mime, None
+		# Mismatch — log and reject
+		logger.warning(
+			f"MIME mismatch: {filename} has extension .{ext} "
+			f"(expected {expected_mimes}) but detected {detected_mime}"
+		)
+		return False, detected_mime, (
+			f'File content ({detected_mime}) does not match extension (.{ext})'
+		)
+
+	# Extension not in map — allow if not a blocked type
+	return True, detected_mime, None
 
 def get_unique_filename(filename):
 	extension = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
@@ -136,12 +205,27 @@ def upload_attachment(email_id):
 	file.save(file_path)
 	file_size = os.path.getsize(file_path)
 	
+	# Validate file content matches extension (MIME type sniffing)
+	is_valid, detected_mime, error_msg = validate_file_content(file_path, file.filename)
+	if not is_valid:
+		os.remove(file_path)  # Clean up the invalid file
+		cursor.close()
+		conn.close()
+		logger.warning(
+			f"Attachment rejected: {file.filename} from user {request.current_user['id']} "
+			f"— {error_msg}"
+		)
+		return jsonify({'error': error_msg}), 400
+	
+	# Use detected MIME type if it's more specific than what the client sent
+	effective_content_type = detected_mime if detected_mime != 'application/octet-stream' else file.content_type
+	
 	insert_attachment_record(
 		cursor,
 		email_id,
 		email['owner_user_id'],
 		file.filename,
-		file.content_type,
+		effective_content_type,
 		file_size,
 		file_path,
 	)
