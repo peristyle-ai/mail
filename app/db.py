@@ -1,12 +1,42 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_db_connection():
+# Thread-local storage for the current user ID (set by token_required).
+# Used by get_db_connection() to set the app.user_id GUC for RLS.
+_thread_local = threading.local()
+
+
+def set_current_user_id(user_id):
+	"""Set the current user ID for this thread (called by token_required)."""
+	_thread_local.user_id = user_id
+
+
+def get_current_user_id():
+	"""Get the current user ID for this thread, or None."""
+	return getattr(_thread_local, 'user_id', None)
+
+
+def get_db_connection(user_id=None):
+	"""Get a database connection, optionally setting the RLS user context.
+	
+	If user_id is provided (or was set via set_current_user_id), the
+	connection will have `app.user_id` set as a custom GUC, which
+	activates Row-Level Security policies.
+	"""
 	conn = psycopg2.connect(os.getenv('DATABASE_URL'), cursor_factory=RealDictCursor)
+	
+	# Set RLS user context if available
+	effective_user_id = user_id or get_current_user_id()
+	if effective_user_id is not None:
+		cursor = conn.cursor()
+		cursor.execute("SET app.user_id = %s", (str(effective_user_id),))
+		cursor.close()
+	
 	return conn
 
 
