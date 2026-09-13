@@ -48,7 +48,7 @@ security:
   # SPF validation
   spf:
     enabled: true
-    reject_on_fail: false  # Changed: Don't reject, just flag SPF failures
+    reject_on_fail: true  # Reject emails that fail SPF validation
   
   # Greylisting
   greylist:

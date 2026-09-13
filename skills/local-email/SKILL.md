@@ -30,10 +30,61 @@ Configure these environment variables (or in `.env`):
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `EMAIL_SERVER` | Base URL of the mail server | `http://localhost:5003` |
+| `EMAIL_SERVER` | Base URL of the mail server | `https://192.168.4.41:5003` |
 | `EMAIL_ADDRESS` | Email account to send from | `evie@yourdomain.com` |
 | `EMAIL_PASSWORD` | Account password | `your_password` |
 | `EMAIL_TO` | Default recipient (optional) | `user@domain.com` |
+| `EMAIL_SERVER_CERT` | Path to TLS cert (optional, see below) | `/usr/local/share/ca-certificates/py_pg_email.crt` |
+
+## TLS / HTTPS Setup
+
+The mail server uses a self-signed TLS certificate. To connect without
+disabling certificate verification, install the cert into your system trust
+store.
+
+### Option A: Download from the server (recommended)
+
+```bash
+# Fetch the cert from the running server
+curl -k -o /tmp/py_pg_email.crt https://<server>:5003/ca.crt
+
+# Install into system trust store (requires sudo)
+sudo cp /tmp/py_pg_email.crt /usr/local/share/ca-certificates/py_pg_email.crt
+sudo update-ca-certificates
+```
+
+### Option B: Copy from the server filesystem
+
+```bash
+# If you have SSH access to the server
+scp user@<server>:~/git/py_pg_email/certs/server.crt /tmp/py_pg_email.crt
+sudo cp /tmp/py_pg_email.crt /usr/local/share/ca-certificates/py_pg_email.crt
+sudo update-ca-certificates
+```
+
+### Option C: User-level trust (no sudo)
+
+```bash
+mkdir -p ~/.local/share/py_pg_email
+curl -k -o ~/.local/share/py_pg_email/server.crt https://<server>:5003/ca.crt
+# The mail_api.py script will auto-discover this path
+```
+
+### Verify TLS is working
+
+```bash
+# Should return {"status":"ok"} without -k flag
+curl https://<server>:5003/health
+```
+
+### Without the cert
+
+If the cert is not installed, Python's `urllib` will raise:
+```
+ssl.SSLCertVerificationError: certificate verify failed: self-signed certificate
+```
+The script auto-discovers certs from the paths above. You can also set
+`EMAIL_SERVER_CERT=/path/to/server.crt` explicitly.
 
 ## Quick start
 
