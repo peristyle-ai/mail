@@ -1,7 +1,7 @@
 ---
 name: local-email
 description: Access a local Python/PostgreSQL mail server API for mailbox login, inbox listing, email read/search, send (with optional CC and attachments), move, star, delete, delivery-status checks, and per-domain outbound relay and webhook-secret management. Use when retrieving API keys or messages from the inbox, sending mail via the local server (single or multi-recipient with CC), checking delivery, or debugging email-server auth/API behavior.
-version: 1.5.0
+version: 1.6.0
 metadata:
   openclaw:
     requires:
@@ -22,7 +22,180 @@ metadata:
 
 # Local Email Skill
 
-Use this skill to interact with a Python/PostgreSQL mail server via its HTTP API.
+Use this skill to interact with a Python/PostgreSQL mail server via its HTTPS API.
+
+## Deployment Modes
+
+The mail server supports two distinct modes of operation. Choose the one that
+matches your infrastructure.
+
+### Mode 1: Relay (SMTP2GO outbound + Cloudflare inbound)
+
+Best for: home servers, dynamic IPs, NAT/CGNAT, or anywhere port 25 is blocked.
+No public MX records or static IP needed.
+
+```
+Inbound:  Internet sender → Cloudflare Email Workers → POST /inbound (HTTPS webhook) → Flask API
+Outbound: Flask API → queue → SMTP2GO (SMTP AUTH + STARTTLS) → recipient's mail server
+```
+
+**How it works:**
+- **Inbound:** Cloudflare receives email on your domains (MX records point to
+  Cloudflare). Their Email Workers parse it and POST to your `/inbound` webhook
+  over HTTPS. No SMTP server involvement from the internet.
+- **Outbound:** Your server queues email and delivers via SMTP2GO's authenticated
+  relay using STARTTLS encryption. SMTP2GO handles SPF/DKIM/DMARC alignment and
+  IP reputation.
+- **SMTP server (port 2525):** Only used for local testing and agent scripts on
+  the LAN. Not exposed to the internet.
+
+**Setup:**
+1. Point MX records to Cloudflare (they provide Email Workers)
+2. Configure Cloudflare Email Workers to POST to `https://your-server:5003/inbound`
+3. Set `SMTP2GO_WEBHOOK_SECRET` in `.env` for HMAC signature verification
+4. Configure per-domain relay via `domain-set-relay` (SMTP2GO credentials)
+5. Set `SMTP2GO_API_KEY` in `.env` for outbound relay
+
+### Mode 2: Static IP (direct SMTP inbound + outbound)
+
+Best for: dedicated servers, VPS, or colocation with a static IP and clean
+reverse DNS (PTR record).
+
+```
+Inbound:  Internet sender → SMTP (port 25/587, STARTTLS) → your server → Flask API
+Outbound: Flask API → queue → direct MX delivery (STARTTLS) → recipient's mail server
+```
+
+**How it works:**
+- **Inbound:** Your server's SMTP daemon listens on port 25 (or 587 for
+  submission). Remote mail servers connect directly. STARTTLS encrypts the
+  connection. SPF, greylisting, and rate limiting protect against spam.
+- **Outbound:** Your server looks up MX records for the recipient domain and
+  delivers directly via SMTP with STARTTLS. DKIM signing proves authenticity.
+- **SMTP server (port 2525):** Exposed to the internet (or port-forwarded from
+  port 25/587). Requires proper PTR record and SPF/DKIM/DMARC DNS records.
+
+**Setup:**
+1. Point MX records to your static IP (`mail.example.com`)
+2. Ensure PTR record matches your HELO hostname
+3. Set up SPF record: `v=spf1 ip4:YOUR_IP -all`
+4. Set up DKIM: generate keys, add DNS TXT record
+5. Set up DMARC: `_dmarc.example.com` TXT record
+6. Configure firewall: allow inbound port 25 (and 587 if using submission)
+7. Set `SMTP_REQUIRE_STARTTLS=true` in `.env` for production
+8. Optionally configure SMTP2GO as a fallback relay for domains that reject
+   direct delivery (Gmail, Outlook are strict about residential IPs)
+
+### Which mode should I use?
+
+| Factor | Mode 1 (Relay) | Mode 2 (Static IP) |
+|--------|---------------|-------------------|
+| Static IP required | ❌ No | ✅ Yes |
+| Port 25 open required | ❌ No | ✅ Yes |
+| PTR record required | ❌ No | ✅ Yes |
+| SPF/DKIM/DMARC setup | Minimal (SMTP2GO handles) | Full (you manage) |
+| IP reputation management | ❌ SMTP2GO handles | ✅ You manage |
+| Deliverability to Gmail/Outlook | ✅ Good (SMTP2GO IPs) | ⚠️ Hard (residential IPs often blocked) |
+| Complexity | Low | High |
+| Cost | SMTP2GO free tier (1000/mo) | Free (your IP) |
+
+**Recommendation:** Start with Mode 1 (relay). It's simpler, more reliable,
+and works from anywhere. Move to Mode 2 (static IP) only if you have a
+dedicated server with a clean IP and want full control.
+
+## TLS / Encryption
+
+The mail server supports TLS on both the Flask API and the SMTP server.
+
+### Flask API (HTTPS)
+
+The API uses a self-signed TLS certificate. All agent/client connections
+should verify against this cert.
+
+**Certificate locations (auto-discovered in order):**
+1. `EMAIL_SERVER_CERT` env var (explicit path)
+2. `<repo>/certs/server.crt` (repo-relative)
+3. `~/.local/share/py_pg_email/server.crt` (user-level)
+4. `/usr/local/share/ca-certificates/py_pg_email.crt` (system-level)
+
+**Quick setup (download from server):**
+```bash
+curl -k -o /tmp/py_pg_email.crt https://<server>:5003/ca.crt
+sudo cp /tmp/py_pg_email.crt /usr/local/share/ca-certificates/py_pg_email.crt
+sudo update-ca-certificates
+```
+
+**No-sudo setup:**
+```bash
+mkdir -p ~/.local/share/py_pg_email
+curl -k -o ~/.local/share/py_pg_email/server.crt https://<server>:5003/ca.crt
+```
+
+**Verify:**
+```bash
+curl https://<server>:5003/health   # should work without -k
+```
+
+### SMTP Server (STARTTLS)
+
+The SMTP server supports STARTTLS (opportunistic by default). This encrypts
+the connection between mail servers, preventing eavesdropping on the LAN or
+internet path.
+
+**How it works:**
+- Client connects on port 2525 (plaintext)
+- Server advertises `STARTTLS` in EHLO response
+- Client issues `STARTTLS` command
+- Connection upgrades to TLS (same cert as Flask API by default)
+- All subsequent SMTP commands are encrypted
+
+**Configuration:**
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| Cert path | `SMTP_TLS_CERT_PATH` | `certs/server.crt` | TLS certificate |
+| Key path | `SMTP_TLS_KEY_PATH` | `certs/server.key` | TLS private key |
+| Require TLS | `SMTP_REQUIRE_STARTTLS` | `false` | Reject commands before STARTTLS |
+
+**Modes:**
+
+| Mode | Setting | Behavior |
+|------|---------|----------|
+| Opportunistic (default) | `SMTP_REQUIRE_STARTTLS=false` | STARTTLS offered but optional. Plaintext fallback allowed. |
+| Required | `SMTP_REQUIRE_STARTTLS=true` | Server rejects `MAIL FROM` until client issues `STARTTLS`. |
+| No TLS | (no cert found) | STARTTLS not advertised. Plaintext only. |
+
+**For production (Mode 2 — static IP):**
+```bash
+# In .env
+SMTP_REQUIRE_STARTTLS=true
+```
+
+**Testing STARTTLS:**
+```bash
+# Check if STARTTLS is advertised
+python3 -c "
+import smtplib
+s = smtplib.SMTP('<server>', 2525, timeout=5)
+s.ehlo('test')
+print('STARTTLS:', s.has_extn('STARTTLS'))
+s.quit()
+"
+
+# Test TLS upgrade
+python3 -c "
+import smtplib, ssl
+s = smtplib.SMTP('<server>', 2525, timeout=5)
+s.ehlo('test')
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+s.starttls(context=ctx)
+s.ehlo('test')
+print('TLS upgrade OK')
+s.quit()
+"
+```
 
 ## Requirements
 
@@ -34,57 +207,7 @@ Configure these environment variables (or in `.env`):
 | `EMAIL_ADDRESS` | Email account to send from | `evie@yourdomain.com` |
 | `EMAIL_PASSWORD` | Account password | `your_password` |
 | `EMAIL_TO` | Default recipient (optional) | `user@domain.com` |
-| `EMAIL_SERVER_CERT` | Path to TLS cert (optional, see below) | `/usr/local/share/ca-certificates/py_pg_email.crt` |
-
-## TLS / HTTPS Setup
-
-The mail server uses a self-signed TLS certificate. To connect without
-disabling certificate verification, install the cert into your system trust
-store.
-
-### Option A: Download from the server (recommended)
-
-```bash
-# Fetch the cert from the running server
-curl -k -o /tmp/py_pg_email.crt https://<server>:5003/ca.crt
-
-# Install into system trust store (requires sudo)
-sudo cp /tmp/py_pg_email.crt /usr/local/share/ca-certificates/py_pg_email.crt
-sudo update-ca-certificates
-```
-
-### Option B: Copy from the server filesystem
-
-```bash
-# If you have SSH access to the server
-scp user@<server>:~/git/py_pg_email/certs/server.crt /tmp/py_pg_email.crt
-sudo cp /tmp/py_pg_email.crt /usr/local/share/ca-certificates/py_pg_email.crt
-sudo update-ca-certificates
-```
-
-### Option C: User-level trust (no sudo)
-
-```bash
-mkdir -p ~/.local/share/py_pg_email
-curl -k -o ~/.local/share/py_pg_email/server.crt https://<server>:5003/ca.crt
-# The mail_api.py script will auto-discover this path
-```
-
-### Verify TLS is working
-
-```bash
-# Should return {"status":"ok"} without -k flag
-curl https://<server>:5003/health
-```
-
-### Without the cert
-
-If the cert is not installed, Python's `urllib` will raise:
-```
-ssl.SSLCertVerificationError: certificate verify failed: self-signed certificate
-```
-The script auto-discovers certs from the paths above. You can also set
-`EMAIL_SERVER_CERT=/path/to/server.crt` explicitly.
+| `EMAIL_SERVER_CERT` | Path to TLS cert (optional) | `/usr/local/share/ca-certificates/py_pg_email.crt` |
 
 ## Quick start
 
@@ -426,8 +549,10 @@ See `references/api.md` for the full endpoint documentation.
 
 - The mail server must be running and reachable at `EMAIL_SERVER`
 - Authentication is per-account — each email address is a separate mailbox
-- Inbound mail is stored in PostgreSQL; outbound uses either verified per-domain relay config or direct MX delivery
-- Inbound webhook (`POST /inbound`) requires no auth — called by SMTP2GO/Cloudflare Email Workers
+- **Deployment modes:** See "Deployment Modes" above for the two supported configurations (relay vs static IP)
+- Inbound mail is stored in PostgreSQL; outbound uses either verified per-domain relay config (Mode 1) or direct MX delivery (Mode 2)
+- Inbound webhook (`POST /inbound`) requires no auth — called by Cloudflare Email Workers (Mode 1) or SMTP2GO
+- SMTP server (port 2525) supports STARTTLS — see "TLS / Encryption" above
 - Folder IDs can be found via the `folders` command
 - Relay config is managed via the `domains`, `domain-set-relay`, and `domain-verify-relay` commands
 - Per-domain inbound auth is managed via `domain-set-webhook-secret` and `domain-rotate-webhook-secret`
