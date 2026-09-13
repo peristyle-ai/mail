@@ -212,9 +212,14 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             sender_username = sender_normalized.split('@')[0] if '@' in sender_normalized else 'unknown'
             sender_domain = sender_normalized.split('@')[-1] if '@' in sender_normalized else 'unknown'
             try:
+                # Use a random hash for external senders — they can never log in,
+                # but the hash is not a known/guessable value.
+                import secrets as _secrets
+                from app.utils.auth import hash_password as _hash_pw
+                _random_hash = _hash_pw(_secrets.token_hex(32))
                 cursor.execute(
                     'INSERT INTO users (email, password_hash, name, is_local, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-                    (sender_normalized, 'external_sender', sender_username, False, datetime.now(timezone.utc))
+                    (sender_normalized, _random_hash, sender_username, False, datetime.now(timezone.utc))
                 )
                 sender_user = cursor.fetchone()
                 conn.commit()
@@ -243,9 +248,14 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
             recipient_domain = recipient.split('@')[-1].lower() if '@' in recipient else ''
             
             if recipient_domain in local_domains:
+                # Use a random hash for auto-created local recipients —
+                # they can set a real password later via the API.
+                import secrets as _secrets2
+                from app.utils.auth import hash_password as _hash_pw2
+                _random_hash2 = _hash_pw2(_secrets2.token_hex(32))
                 cursor.execute(
                     'INSERT INTO users (email, password_hash, name, is_local, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-                    (recipient, 'test_hash', recipient.split('@')[0], True, datetime.now(timezone.utc))
+                    (recipient, _random_hash2, recipient.split('@')[0], True, datetime.now(timezone.utc))
                 )
                 recipient_user = cursor.fetchone()
                 conn.commit()

@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from app.utils.webhooks import generate_webhook_secret, hash_webhook_secret
+from app.utils.crypto import encrypt_field, decrypt_field, is_encrypted
 from ..db import get_db_connection, ensure_domains_table
 from smtp_server.outbound.smtp2go_delivery import SMTP2GODelivery
 import re
@@ -171,6 +172,8 @@ def set_domain_relay(domain):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
+		# Encrypt the relay password before storing
+		encrypted_password = encrypt_field(password)
 		cursor.execute(
 			'''INSERT INTO domains (
 			   domain, relay_provider, relay_host, relay_port,
@@ -192,7 +195,7 @@ def set_domain_relay(domain):
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
 			   created_at, updated_at''',
-			(domain_name, provider, host, port, username, password, from_address or None)
+			(domain_name, provider, host, port, username, encrypted_password, from_address or None)
 		)
 		row = cursor.fetchone()
 		conn.commit()
@@ -252,7 +255,7 @@ def verify_domain_relay(domain):
 			relay_host=row['relay_host'] or 'mail-au.smtp2go.com',
 			relay_port=row['relay_port'] or 2525,
 			username=row['relay_username'],
-			password=row['relay_password_encrypted']
+			password=decrypt_field(row['relay_password_encrypted'])
 		)
 		success, message = relay_client.verify_connection()
 		if not success:

@@ -246,10 +246,15 @@ def find_or_create_sender(sender_email: str) -> int:
 			return row['id']
 
 		sender_username = sender_email.split('@')[0][:100] if '@' in sender_email else 'unknown'
+		# Use a random hash for external senders — they can never log in,
+		# but the hash is not a known/guessable value.
+		import secrets as _secrets
+		from ..utils.auth import hash_password as _hash_pw
+		_random_hash = _hash_pw(_secrets.token_hex(32))
 		cursor.execute(
 			'''INSERT INTO users (email, password_hash, name, is_local, created_at)
 			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
-			(sender_email, 'external_sender', sender_username, False, datetime.now(timezone.utc))
+			(sender_email, _random_hash, sender_username, False, datetime.now(timezone.utc))
 		)
 		conn.commit()
 		return cursor.fetchone()['id']
@@ -324,6 +329,7 @@ def receive_inbound_webhook():
 	content_type = request.content_type or ""
 	content_length = request.content_length or 0
 	logger.info(f"Inbound: content_type={content_type}, content_length={content_length}, remote_addr={client_ip}")
+	# Log field names and sizes only — never log field values (email content)
 	if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
 		form_keys = list(request.form.keys())
 		form_sizes = {k: min(len(request.form.get(k, '')), 200) for k in form_keys}
@@ -336,23 +342,15 @@ def receive_inbound_webhook():
 				file_sizes[fk] = f.tell()
 				f.seek(0)
 		logger.info(f"Inbound: form_keys={form_keys}, sizes={form_sizes}, files={file_keys}, file_sizes={file_sizes}")
-		for key in form_keys:
-			val = request.form.get(key, '')[:300]
-			logger.info(f"Inbound: field '{key}' = {val}")
-		for key in file_keys:
-			f = request.files.get(key)
-			if f:
-				logger.info(f"Inbound: file '{key}' filename={f.filename}, content_type={f.content_type}")
 	elif "application/json" in content_type:
 		json_data = request.get_json(silent=True)
 		if json_data and isinstance(json_data, dict):
-			for key, val in json_data.items():
-				logger.info(f"Inbound: json '{key}' = {str(val)[:300]}")
+			logger.info(f"Inbound: json_keys={list(json_data.keys())}")
 		else:
 			logger.info(f"Inbound: JSON body invalid or empty")
 	else:
 		raw_data = request.get_data()
-		logger.info(f"Inbound: unknown content type, raw_data_len={len(raw_data)}, first_500={raw_data[:500]}")
+		logger.info(f"Inbound: unknown content type, raw_data_len={len(raw_data)}")
 
 	# ── Parse payload ──────────────────────────────────────────────────────────
 	parsed_payload = _parse_inbound_payload(content_type)
