@@ -31,8 +31,15 @@ def create_app():
 	app.config['MAX_FORM_MEMORY_SIZE'] = 50 * 1024 * 1024  # 50MB max form field size
 	app.request_class.max_form_memory_size = 50 * 1024 * 1024  # 50MB per Werkzeug
 	
-	# Enable CORS for all domains (safe for local development)
-	CORS(app)
+	# CORS: restrict to known client origin(s). Set CORS_ORIGINS in .env as a
+	# comma-separated list of allowed origins (e.g. your public domain via tunnel,
+	# plus localhost for dev). If unset, defaults to localhost-only (most restrictive).
+	import os as _os
+	_cors_origins = [o.strip() for o in _os.getenv('CORS_ORIGINS', '').split(',') if o.strip()]
+	if not _cors_origins:
+		_cors_origins = ['http://127.0.0.1:5005', 'http://localhost:5005']
+	app.logger.info(f"CORS origins: {_cors_origins}")
+	CORS(app, origins=_cors_origins, supports_credentials=True)
 	
 	# Swagger configuration
 	swagger_config = {

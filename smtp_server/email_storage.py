@@ -231,7 +231,15 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         recipient_user = cursor.fetchone()
         
         if not recipient_user:
-            local_domains = ['example.com.au', 'mailrelay.com', 'localhost', 'example.com', 'example.ai', 'example.ai', 'example.io']
+            # Use the domains table (same source as handler.py RCPT validation)
+            # instead of a hardcoded list. Falls back to seed domains if DB is empty.
+            from app.db import get_seed_domains
+            try:
+                cursor.execute('SELECT domain FROM domains ORDER BY domain')
+                db_domains = {row['domain'].lower() for row in cursor.fetchall() if row.get('domain')}
+                local_domains = db_domains if db_domains else set(get_seed_domains())
+            except Exception:
+                local_domains = set(get_seed_domains())
             recipient_domain = recipient.split('@')[-1].lower() if '@' in recipient else ''
             
             if recipient_domain in local_domains:

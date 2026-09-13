@@ -12,8 +12,14 @@ def hash_password(password):
 def verify_password(password, password_hash):
     return check_password_hash(password_hash, password)
 
+def _get_jwt_secret():
+    secret_key = os.getenv('JWT_SECRET')
+    if not secret_key:
+        raise RuntimeError("JWT_SECRET environment variable is required. Set it in .env")
+    return secret_key
+
 def generate_jwt(user_id):
-    secret_key = os.getenv('JWT_SECRET', 'dev-secret-key')
+    secret_key = _get_jwt_secret()
     now = datetime.now(timezone.utc)
     payload = {
         'user_id': user_id,
@@ -23,7 +29,7 @@ def generate_jwt(user_id):
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
 def decode_jwt(token):
-    secret_key = os.getenv('JWT_SECRET', 'dev-secret-key')
+    secret_key = _get_jwt_secret()
     return jwt.decode(token, secret_key, algorithms=['HS256'])
 
 def token_required(f):

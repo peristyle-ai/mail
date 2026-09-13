@@ -22,6 +22,38 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+import ssl
+
+
+def _build_ssl_context() -> ssl.SSLContext | None:
+	"""Build an SSL context that trusts the mail server's self-signed cert.
+	
+	Looks for the cert in these locations (in order):
+	  1. EMAIL_SERVER_CERT env var (path to .crt file)
+	  2. <script_dir>/../../../certs/server.crt (repo-relative)
+	  3. ~/.local/share/py_pg_email/server.crt (user-installed)
+	  4. /usr/local/share/ca-certificates/py_pg_email.crt (system-installed)
+	
+	Returns None if no cert found (falls back to default system CA bundle,
+	which will reject self-signed certs).
+	"""
+	candidates = [
+		os.environ.get("EMAIL_SERVER_CERT", ""),
+		str(Path(__file__).resolve().parents[3] / "certs" / "server.crt"),
+		str(Path.home() / ".local" / "share" / "py_pg_email" / "server.crt"),
+		"/usr/local/share/ca-certificates/py_pg_email.crt",
+	]
+	for path_str in candidates:
+		if not path_str:
+			continue
+		path = Path(path_str)
+		if path.exists() and path.is_file():
+			ctx = ssl.create_default_context(cafile=str(path))
+			return ctx
+	return None
+
+
+_SSL_CONTEXT = _build_ssl_context()
 
 
 def find_env_file() -> Path | None:
@@ -86,8 +118,12 @@ def request_json(
 	if token:
 		headers["Authorization"] = f"Bearer {token}"
 	req = Request(url, data=data, headers=headers, method=method)
-	with urlopen(req, timeout=20) as response:
-		body = response.read().decode("utf-8")
+	if _SSL_CONTEXT:
+		with urlopen(req, timeout=20, context=_SSL_CONTEXT) as response:
+			body = response.read().decode("utf-8")
+	else:
+		with urlopen(req, timeout=20) as response:
+			body = response.read().decode("utf-8")
 	return json.loads(body) if body else None
 
 

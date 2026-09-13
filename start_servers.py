@@ -58,12 +58,14 @@ root_logger.addHandler(file_handler)
 logger = logging.getLogger(__name__)
 
 
-def run_flask_app(port=5000, debug=False):
+def run_flask_app(port=5000, debug=False, ssl_context=None):
     """Run Flask app in a thread."""
     try:
         app = create_app()
-        logger.info(f"Starting Flask API on {SERVER_HOST}:{port}...")
-        app.run(host=SERVER_HOST, port=port, debug=debug, use_reloader=False)
+        scheme = 'https' if ssl_context else 'http'
+        logger.info(f"Starting Flask API on {scheme}://{SERVER_HOST}:{port}...")
+        app.run(host=SERVER_HOST, port=port, debug=debug, use_reloader=False,
+                ssl_context=ssl_context)
     except Exception as e:
         logger.error(f"Flask app crashed: {e}")
         logger.error(traceback.format_exc())
@@ -86,8 +88,24 @@ def main():
     parser.add_argument('--smtp-port', type=int, default=2525, help='SMTP server port (default: 2525, use 587 with sudo)')
     parser.add_argument('--smtp-host', default=SERVER_HOST, help='SMTP bind address (default: HOST from .env)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('--tls-cert', default=os.environ.get('TLS_CERT', ''),
+                        help='Path to TLS certificate (enables HTTPS)')
+    parser.add_argument('--tls-key', default=os.environ.get('TLS_KEY', ''),
+                        help='Path to TLS private key (enables HTTPS)')
     
     args = parser.parse_args()
+    
+    # Build SSL context if cert+key provided
+    ssl_context = None
+    if args.tls_cert and args.tls_key:
+        import ssl
+        if not os.path.exists(args.tls_cert):
+            raise FileNotFoundError(f"TLS cert not found: {args.tls_cert}")
+        if not os.path.exists(args.tls_key):
+            raise FileNotFoundError(f"TLS key not found: {args.tls_key}")
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(args.tls_cert, args.tls_key)
+        print(f"TLS enabled: {args.tls_cert}")
     
     print("="*70)
     print("Mail Server Startup")
@@ -140,7 +158,7 @@ def main():
         logger.info(f"Starting Flask API on port {args.flask_port}...")
         flask_thread = threading.Thread(
             target=run_flask_app,
-            args=(args.flask_port, args.debug),
+            args=(args.flask_port, args.debug, ssl_context),
             daemon=True
         )
         flask_thread.start()
@@ -154,13 +172,14 @@ def main():
         logger.info(f"✓ Flask API started on port {args.flask_port}")
         print()
         
+        scheme = 'https' if ssl_context else 'http'
         print("="*70)
         print("Servers are running!")
         print("="*70)
         print()
         print("Access Points:")
-        print(f"  - Swagger UI:    http://localhost:{args.flask_port}/docs")
-        print(f"  - Flask API:     http://localhost:{args.flask_port}/api/")
+        print(f"  - Swagger UI:    {scheme}://localhost:{args.flask_port}/docs")
+        print(f"  - Flask API:     {scheme}://localhost:{args.flask_port}/api/")
         print(f"  - SMTP Server:   {args.smtp_host}:{args.smtp_port}")
         print()
         print("Test Commands:")

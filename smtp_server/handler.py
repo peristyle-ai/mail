@@ -17,6 +17,30 @@ from .sender_blocklist_checker import check_sender_blocked
 logger = logging.getLogger(__name__)
 
 
+def _get_local_domains() -> set:
+	"""Return local domains from the domains table, falling back to seed list.
+	
+	Queries the `domains` table (same source as the /inbound webhook).
+	Falls back to the seed list from app.db.get_seed_domains() if the
+	table is empty or unreachable.
+	"""
+	try:
+		from app.db import get_db_connection, get_seed_domains
+		conn = get_db_connection()
+		cursor = conn.cursor()
+		cursor.execute('SELECT domain FROM domains ORDER BY domain')
+		rows = cursor.fetchall()
+		cursor.close()
+		conn.close()
+		if rows:
+			return {row['domain'].lower() for row in rows if row.get('domain')}
+		return set(get_seed_domains())
+	except Exception as e:
+		logger.warning(f"Failed to load local domains from DB, using seed list: {e}")
+		from app.db import get_seed_domains
+		return set(get_seed_domains())
+
+
 class SecureMailHandler:
     """
     SMTP handler with integrated security features.
@@ -32,6 +56,10 @@ class SecureMailHandler:
         self.rate_limiter = None
         self.spf_validator = None
         self.greylist_manager = None
+        
+        # Load local domains for RCPT TO validation
+        self._local_domains = _get_local_domains()
+        logger.info(f"Local domains for RCPT validation: {sorted(self._local_domains)}")
         
         if security_config.rate_limit_enabled:
             self.rate_limiter = RateLimiter(
@@ -175,10 +203,54 @@ class SecureMailHandler:
         logger.debug(f"MAIL FROM: {address} from {client_ip}")
         return '250 OK'
     
+    def _is_local_domain(self, domain: str) -> bool:
+        """Check if a domain is in the local domains set."""
+        return domain.lower() in self._local_domains
+    
+    def reload_local_domains(self):
+        """Reload local domains from the database (e.g. after adding a new domain)."""
+        self._local_domains = _get_local_domains()
+        logger.info(f"Reloaded local domains: {sorted(self._local_domains)}")
+    
     async def handle_RCPT(self, server, session: Session, envelope: Envelope, address: str, options):
-        """Handle RCPT TO command."""
+        """Handle RCPT TO command with local domain validation.
+        
+        Rejects recipients whose domain is not in the `domains` table.
+        This prevents the server from being used as an open relay.
+        """
+        client_ip = self._get_client_ip(session)
+        
+        # Extract domain from recipient address
+        if '@' not in address:
+            logger.warning(
+                f"RCPT REJECTED: malformed address '{address}' from {client_ip} "
+                f"(envelope_from={envelope.mail_from}) — no @ in address"
+            )
+            return '550 Invalid recipient address: no @ in address'
+        
+        recipient_domain = address.split('@')[-1].lower().strip()
+        
+        if not recipient_domain:
+            logger.warning(
+                f"RCPT REJECTED: empty domain in '{address}' from {client_ip} "
+                f"(envelope_from={envelope.mail_from})"
+            )
+            return '550 Invalid recipient address: empty domain'
+        
+        if not self._is_local_domain(recipient_domain):
+            logger.warning(
+                f"RCPT REJECTED: '{address}' from {client_ip} "
+                f"(envelope_from={envelope.mail_from}) — "
+                f"domain '{recipient_domain}' is not a local domain. "
+                f"Local domains: {sorted(self._local_domains)}"
+            )
+            return (
+                f'550 Relay denied: {recipient_domain} is not a local domain. '
+                f'This server only accepts mail for: {", ".join(sorted(self._local_domains))}'
+            )
+        
         envelope.rcpt_tos.append(address)
-        logger.debug(f"RCPT TO: {address}")
+        logger.debug(f"RCPT TO: {address} (domain={recipient_domain}, accepted)")
         return '250 OK'
     
     async def handle_quit(self, server, session: Session, envelope: Envelope):
