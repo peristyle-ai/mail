@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
-from .db import get_db_connection, set_current_user_id
+from ..db import get_db_connection, set_current_user_id
 
 def hash_password(password):
     return generate_password_hash(password, method='pbkdf2:sha256')
