@@ -40,8 +40,10 @@ CREATE TABLE emails (
 CREATE TABLE email_recipients (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
-	user_id INTEGER NOT NULL REFERENCES users(id),
-	recipient_type VARCHAR(10) NOT NULL CHECK (recipient_type IN ('to', 'cc', 'bcc'))
+	user_id INTEGER REFERENCES users(id),
+	recipient_type VARCHAR(10) NOT NULL CHECK (recipient_type IN ('to', 'cc', 'bcc')),
+	recipient_email TEXT,
+	CONSTRAINT email_recipients_at_least_one_target CHECK (user_id IS NOT NULL OR recipient_email IS NOT NULL)
 );
 
 -- Attachments table
