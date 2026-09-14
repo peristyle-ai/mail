@@ -75,10 +75,18 @@ def decrypt_field(ciphertext: str) -> str:
 	"""Decrypt a Fernet token from the database.
 
 	Returns the original plaintext string.
-	Raises cryptography.fernet.InvalidToken if the token is invalid or tampered.
+	Raises cryptography.fernet.InvalidToken if the value is a Fernet
+	token but the key is wrong or the value has been tampered with.
 	"""
 	if not ciphertext:
 		return ''
+	# Legacy plaintext fallback: relay_password_encrypted may contain
+	# bare plaintext for rows populated by db/outbound_migration.sql
+	# before Fernet enforcement. Once those rows are rotated through
+	# the /api/domains/<domain>/relay endpoint they get re-stored as
+	# Fernet tokens and this branch stops triggering.
+	if not is_encrypted(ciphertext):
+		return ciphertext
 	f = _get_fernet()
 	return f.decrypt(ciphertext.encode('utf-8')).decode('utf-8')
 
