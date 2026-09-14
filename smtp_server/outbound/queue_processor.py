@@ -121,24 +121,13 @@ class OutboundQueueProcessor:
 		cursor = conn.cursor()
 		
 		try:
-			# Get pending emails that are ready to send
-			# Also include 'sending' emails that have been stuck for > 5 minutes (crashed/restarted during send)
+			# Get pending emails using security definer function (bypasses RLS)
+			now = datetime.now(timezone.utc)
+			stuck_threshold = now - timedelta(minutes=5)
+			
 			cursor.execute(
-				'''SELECT id, email_id, recipient_email, recipient_domain, 
-				   attempt_count
-				   FROM outbound_queue
-				   WHERE (
-				       status IN ('pending', 'retry')
-				       AND (next_attempt IS NULL OR next_attempt <= %s)
-				   ) OR (
-				       status = 'sending'
-				       AND last_attempt < %s
-				   )
-				   LIMIT 10''',
-				(
-					datetime.now(timezone.utc),
-					datetime.now(timezone.utc) - timedelta(minutes=5)
-				)
+				'SELECT * FROM get_pending_outbound_emails(%s, %s, %s)',
+				(now, stuck_threshold, 10)
 			)
 			pending = cursor.fetchall()
 			
@@ -179,76 +168,54 @@ class OutboundQueueProcessor:
 			if not allowed:
 				logger.warning(f"Rate limit hit for {domain}: {message}")
 				cursor.execute(
-					'''UPDATE outbound_queue 
-					   SET status = 'retry', 
-					       next_attempt = %s,
-					       error_message = %s
-					   WHERE id = %s''',
-					(datetime.now(timezone.utc) + timedelta(minutes=5),
-					 message, queue_id)
+					'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+					(queue_id, 'retry', message, 
+					 datetime.now(timezone.utc) + timedelta(minutes=5), None)
 				)
 				conn.commit()
 				return
 			
-			# Update status to sending
+			# Update status to sending using security definer function
 			now = datetime.now(timezone.utc)
 			cursor.execute(
-				'''UPDATE outbound_queue 
-				   SET status = 'sending', 
-				       attempt_count = attempt_count + 1,
-				       last_attempt = %s
-				   WHERE id = %s''',
-				(now, queue_id)
+				'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+				(queue_id, 'sending', None, None, None)
 			)
 			conn.commit()
 			
-			# Get email content
-			cursor.execute(
-				'''SELECT sender_id, subject, body, raw_email, headers
-				   FROM emails WHERE id = %s''',
-				(email_id,)
-			)
+			# Get email content using security definer function
+			cursor.execute('SELECT * FROM get_email_for_delivery(%s)', (email_id,))
 			email_row = cursor.fetchone()
 
-			# Get CC recipients from email_recipients table (other than sender or current recipient)
+			if not email_row:
+				logger.error(f"Email {email_id} not found")
+				cursor.execute(
+					'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+					(queue_id, 'failed', 'Original email not found', None, None)
+				)
+				conn.commit()
+				return
+
+			# Get CC recipients using security definer function
 			cursor.execute(
-				'''SELECT u.email FROM email_recipients er
-				   JOIN users u ON er.user_id = u.id
-				   WHERE er.email_id = %s AND er.recipient_type = 'cc'
-				   AND er.user_id != %s AND u.email != %s''',
+				'SELECT * FROM get_email_cc_recipients(%s, %s, %s)',
 				(email_id, email_row['sender_id'], recipient)
 			)
 			cc_local_recipients = [row['email'] for row in cursor.fetchall()]
 			
-			if not email_row:
-				logger.error(f"Email {email_id} not found")
-				cursor.execute(
-					'''UPDATE outbound_queue 
-					   SET status = 'failed', error_message = %s
-					   WHERE id = %s''',
-					('Original email not found', queue_id)
-				)
-				conn.commit()
-				return
-			
-			# Get sender's email address
-			cursor.execute(
-				'SELECT email FROM users WHERE id = %s',
-				(email_row['sender_id'],)
-			)
+			# Get sender's email address using security definer function
+			cursor.execute('SELECT get_user_email(%s)', (email_row['sender_id'],))
 			sender_row = cursor.fetchone()
-			if not sender_row:
+			if not sender_row or not sender_row[0]:
 				logger.error(f"Sender {email_row['sender_id']} not found")
 				cursor.execute(
-					'''UPDATE outbound_queue 
-					   SET status = 'failed', error_message = %s
-					   WHERE id = %s''',
-					('Sender not found', queue_id)
+					'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+					(queue_id, 'failed', 'Sender not found', None, None)
 				)
 				conn.commit()
 				return
 			
-			from_address = sender_row['email']
+			from_address = sender_row[0]
 			relay_config = self._get_domain_relay_config(from_address)
 			use_relay = bool(
 				relay_config and relay_config['relay_username'] and
@@ -275,10 +242,8 @@ class OutboundQueueProcessor:
 					error_msg = f"No mail server found for {domain}"
 					logger.error(error_msg)
 					cursor.execute(
-						'''UPDATE outbound_queue 
-						   SET status = 'failed', error_message = %s
-						   WHERE id = %s''',
-						(error_msg, queue_id)
+						'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+						(queue_id, 'failed', error_msg, None, None)
 					)
 					conn.commit()
 					log_delivery_attempt(
@@ -404,10 +369,7 @@ class OutboundQueueProcessor:
 								msg[key.strip()] = value.strip()
 			
 			# ── Attach files from attachments table ────────────────────────────
-			cursor.execute(
-				'SELECT file_name, file_path, content_type FROM attachments WHERE email_id = %s',
-				(email_id,)
-			)
+			cursor.execute('SELECT * FROM get_email_attachments(%s)', (email_id,))
 			attachments = cursor.fetchall()
 			
 			if attachments:
@@ -471,14 +433,10 @@ class OutboundQueueProcessor:
 				)
 			
 			if success:
-				# Mark as sent
+				# Mark as sent using security definer function
 				cursor.execute(
-					'''UPDATE outbound_queue 
-					   SET status = 'sent', 
-					       delivered_at = %s,
-					       error_message = NULL
-					   WHERE id = %s''',
-					(datetime.now(timezone.utc), queue_id)
+					'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+					(queue_id, 'sent', None, None, datetime.now(timezone.utc))
 				)
 				conn.commit()
 				log_delivery_attempt(
@@ -491,12 +449,10 @@ class OutboundQueueProcessor:
 				is_permanent = 'Permanent' in message or 'refused' in message.lower()
 				
 				if is_permanent or attempt_count >= self.max_retries:
-					# Mark as failed
+					# Mark as failed using security definer function
 					cursor.execute(
-						'''UPDATE outbound_queue 
-						   SET status = 'failed', error_message = %s
-						   WHERE id = %s''',
-						(message[:500], queue_id)
+						'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+						(queue_id, 'failed', message[:500], None, None)
 					)
 					conn.commit()
 					log_delivery_attempt(
@@ -505,17 +461,13 @@ class OutboundQueueProcessor:
 					)
 					logger.error(f"Failed to deliver email {email_id} to {recipient}: {message}")
 				else:
-					# Schedule retry
+					# Schedule retry using security definer function
 					delay = self.retry_delays[min(attempt_count, len(self.retry_delays)-1)]
 					next_attempt = datetime.now(timezone.utc) + timedelta(seconds=delay)
 					
 					cursor.execute(
-						'''UPDATE outbound_queue 
-						   SET status = 'retry', 
-						       next_attempt = %s,
-						       error_message = %s
-						   WHERE id = %s''',
-						(next_attempt, message[:500], queue_id)
+						'SELECT update_queue_status(%s, %s, %s, %s, %s)',
+						(queue_id, 'retry', message[:500], next_attempt, None)
 					)
 					conn.commit()
 					log_delivery_attempt(
@@ -537,19 +489,12 @@ class OutboundQueueProcessor:
 		cursor = conn.cursor()
 		
 		try:
-			cursor.execute(
-				'''SELECT status, COUNT(*) as count 
-				   FROM outbound_queue 
-				   GROUP BY status'''
-			)
+			# Use security definer functions to bypass RLS
+			cursor.execute('SELECT * FROM get_queue_stats()')
 			status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
 			
-			cursor.execute(
-				'''SELECT COUNT(*) as count 
-				   FROM outbound_queue 
-				   WHERE status IN ('pending', 'retry')'''
-			)
-			pending = cursor.fetchone()['count']
+			cursor.execute('SELECT get_pending_queue_count()')
+			pending = cursor.fetchone()[0]
 			
 			return {
 				'pending': pending,
