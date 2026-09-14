@@ -403,9 +403,22 @@ def receive_inbound_webhook():
 		recipient_domain = recipient_email.split('@')[-1].lower() if '@' in recipient_email else ''
 		if recipient_domain not in _get_local_domains():
 			logger.info(f"Inbound: unknown recipient domain {recipient_email}")
+			return jsonify({
+				"error": "550 5.1.1 User unknown: domain not local",
+				"status": "rejected",
+				"reason": "unknown recipient domain",
+				"recipient": recipient_email,
+				"smtp_code": "550 5.1.1"
+			}), 404
 		else:
 			logger.info(f"Inbound: no local user for {recipient_email}")
-		return jsonify({"status": "rejected", "reason": "unknown recipient"}), 200
+			return jsonify({
+				"error": "550 5.1.1 User unknown: no local mailbox",
+				"status": "rejected",
+				"reason": "unknown recipient",
+				"recipient": recipient_email,
+				"smtp_code": "550 5.1.1"
+			}), 404
 
 	recipient_id = result[0]
 
