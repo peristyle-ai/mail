@@ -25,9 +25,22 @@ from app.utils.embedding_enqueue import enqueue_embedding_job
 logger = logging.getLogger(__name__)
 
 
+def _get_db_with_user(user_id: int):
+	"""Get a DB connection with the RLS user context set.
+	
+	Used by outbound storage which runs outside the Flask request context
+	(so no thread-local user_id is set by token_required).
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	cursor.execute("SET app.user_id = %s", (str(user_id),))
+	cursor.close()
+	return conn
+
+
 def get_or_create_sent_folder(user_id: int) -> int:
 	"""Get or create the Sent folder for a user."""
-	conn = get_db_connection()
+	conn = _get_db_with_user(user_id)
 	cursor = conn.cursor()
 	
 	try:
@@ -135,7 +148,7 @@ def queue_outbound_email(
 			del message['References']
 		message['References'] = ' '.join(f"<{r}>" for r in references.split())
 
-	conn = get_db_connection()
+	conn = _get_db_with_user(sender_id)
 	cursor = conn.cursor()
 
 	try:
@@ -340,9 +353,9 @@ def queue_outbound_email(
 		conn.close()
 
 
-def get_delivery_status(email_id: int) -> Dict:
+def get_delivery_status(email_id: int, user_id: int = None) -> Dict:
 	"""Get delivery status for an email."""
-	conn = get_db_connection()
+	conn = _get_db_with_user(user_id) if user_id else get_db_connection()
 	cursor = conn.cursor()
 	
 	try:
@@ -401,10 +414,11 @@ def log_delivery_attempt(
 	event_type: str,
 	smtp_response: Optional[str] = None,
 	error_message: Optional[str] = None,
-	remote_server: Optional[str] = None
+	remote_server: Optional[str] = None,
+	user_id: Optional[int] = None
 ):
 	"""Log a delivery attempt."""
-	conn = get_db_connection()
+	conn = _get_db_with_user(user_id) if user_id else get_db_connection()
 	cursor = conn.cursor()
 	
 	try:

@@ -283,7 +283,7 @@ class OutboundQueueProcessor:
 					conn.commit()
 					log_delivery_attempt(
 						queue_id, email_id, recipient, 'failure',
-						None, error_msg, None
+						None, error_msg, None, user_id=email_row['sender_id'] if email_row else None
 					)
 					return
 
@@ -454,7 +454,7 @@ class OutboundQueueProcessor:
 			# Attempt delivery
 			log_delivery_attempt(
 				queue_id, email_id, recipient, 'attempt',
-				None, None, delivery_target
+				None, None, delivery_target, user_id=email_row['sender_id']
 			)
 
 			if use_relay:
@@ -483,7 +483,7 @@ class OutboundQueueProcessor:
 				conn.commit()
 				log_delivery_attempt(
 					queue_id, email_id, recipient, 'success',
-					message, None, delivery_target
+					message, None, delivery_target, user_id=email_row['sender_id']
 				)
 				logger.info(f"Successfully delivered email {email_id} to {recipient}")
 			else:
@@ -501,7 +501,7 @@ class OutboundQueueProcessor:
 					conn.commit()
 					log_delivery_attempt(
 						queue_id, email_id, recipient, 'failure',
-						None, message, delivery_target
+						None, message, delivery_target, user_id=email_row['sender_id']
 					)
 					logger.error(f"Failed to deliver email {email_id} to {recipient}: {message}")
 				else:
@@ -520,7 +520,7 @@ class OutboundQueueProcessor:
 					conn.commit()
 					log_delivery_attempt(
 						queue_id, email_id, recipient, 'bounce',
-						None, message, delivery_target
+						None, message, delivery_target, user_id=email_row['sender_id']
 					)
 					logger.warning(
 						f"Delivery failed for {recipient}, retry {attempt_count+1}/{self.max_retries} "
