@@ -108,24 +108,15 @@ def enqueue_embedding_job(email_id: int, folder_id: Optional[int] = None,
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Skip if there's already a live (non-terminal) job for this email.
-        cursor.execute(
-            '''SELECT 1 FROM embedding_jobs
-               WHERE email_id = %s AND status IN ('pending','processing')
-               LIMIT 1''',
-            (email_id,),
-        )
-        if cursor.fetchone() is not None:
+        # Use security definer function to bypass RLS (cross-user safe)
+        cursor.execute('SELECT insert_embedding_job(%s)', (email_id,))
+        row = cursor.fetchone()
+        job_id = row['insert_embedding_job'] if row else None
+        if job_id is None:
+            # Already has a live job
             cursor.close()
             conn.close()
             return False
-        cursor.execute(
-            '''INSERT INTO embedding_jobs (email_id, status)
-               VALUES (%s, 'pending')
-               RETURNING id''',
-            (email_id,),
-        )
-        job_id = cursor.fetchone()['id']
         conn.commit()
         cursor.close()
         conn.close()

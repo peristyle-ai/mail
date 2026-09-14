@@ -240,18 +240,22 @@ def queue_outbound_email(
 		subject_normalized_value = subj_norm if subj_norm and not (message_id or in_reply_to or references) else None
 
 		# Store in emails table (in Sent folder) with recipient_id
-		cursor.execute(
-			'''INSERT INTO emails
-			   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
-			    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
-			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-			           %s, %s, %s, %s, %s)
-			   RETURNING id''',
-			(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str,
-			 datetime.now(timezone.utc), True,  # Mark as read since user sent it
-			 message_id, in_reply_to, references, thread_id, subject_normalized_value)
-		)
-		email_id = cursor.fetchone()['id']
+		try:
+			cursor.execute(
+				'''INSERT INTO emails
+				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
+				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
+				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+				           %s, %s, %s, %s, %s)
+				   RETURNING id''',
+				(sender_id, recipient_id, sent_folder_id, subject, body, body_html, raw_email_str, headers_str,
+				 datetime.now(timezone.utc), True,  # Mark as read since user sent it
+				 message_id, in_reply_to, references, thread_id, subject_normalized_value)
+			)
+			email_id = cursor.fetchone()['id']
+		except Exception as e:
+			logger.error(f"FAILED at INSERT INTO emails (sent): {e}")
+			raise
 
 		# Queue external recipients (preserve recipient_type for delivery semantics)
 		for to_address, recipient_type in unique_recipients:
@@ -260,76 +264,82 @@ def queue_outbound_email(
 
 			if not local_user:
 				domain = to_address.split('@')[-1].lower()
-				cursor.execute(
-					'''INSERT INTO outbound_queue
-					   (email_id, recipient_email, recipient_domain, status, created_at)
-					   VALUES (%s, %s, %s, %s, %s)
-					   RETURNING id''',
-					(email_id, to_address, domain, 'pending', datetime.now(timezone.utc))
-				)
-				queue_id = cursor.fetchone()['id']
-				queue_ids.append(queue_id)
+				# Use security definer function to bypass RLS for queue insert
+				try:
+					cursor.execute(
+						'SELECT insert_outbound_queue(%s, %s, %s)',
+						(email_id, to_address, domain)
+					)
+					queue_id = cursor.fetchone()['insert_outbound_queue']
+					queue_ids.append(queue_id)
+				except Exception as e:
+					logger.error(f"FAILED at insert_outbound_queue for {to_address}: {e}")
+					raise
 				# Also record in email_recipients with user_id=NULL (external recipient has no local user)
-				cursor.execute(
-					'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
-					   VALUES (%s, NULL, %s, %s)''',
-					(email_id, to_address, recipient_type)
-				)
+				try:
+					cursor.execute(
+						'SELECT insert_email_recipient(%s, %s, %s, %s)',
+						(email_id, None, to_address, recipient_type)
+					)
+				except Exception as e:
+					logger.error(f"FAILED at insert_email_recipient (external) for {to_address}: {e}")
+					raise
 				logger.info(f"Queued email {email_id} for delivery to {to_address} ({recipient_type})")
 
 		# Handle local recipients (Inbox copies + email_recipients rows)
 		for to_address, recipient_id_local, recipient_type in local_recipients:
 			if recipient_id_local == sender_id:
 				# Sender self-send; record as 'to'/'cc' against the sent email only
-				cursor.execute(
-					'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
-					   VALUES (%s, %s, %s, %s)''',
-					(email_id, recipient_id_local, to_address, recipient_type)
-				)
+				try:
+					cursor.execute(
+						'SELECT insert_email_recipient(%s, %s, %s, %s)',
+						(email_id, recipient_id_local, to_address, recipient_type)
+					)
+				except Exception as e:
+					logger.error(f"FAILED at insert_email_recipient (self-send) for {to_address}: {e}")
+					raise
 				continue
 
-			# Get recipient's inbox
-			cursor.execute(
-				'SELECT id FROM folders WHERE user_id = %s AND name = %s',
-				(recipient_id_local, 'Inbox')
-			)
-			inbox = cursor.fetchone()
-
-			if not inbox:
+			# Get or create recipient's Inbox using security definer function (bypasses RLS)
+			try:
 				cursor.execute(
-					'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+					'SELECT get_or_create_folder(%s, %s)',
 					(recipient_id_local, 'Inbox')
 				)
-				inbox = cursor.fetchone()
+				inbox_id = cursor.fetchone()['get_or_create_folder']
+			except Exception as e:
+				logger.error(f"FAILED at get_or_create_folder for recipient {recipient_id_local}: {e}")
+				raise
 
-			# Copy email to recipient's inbox - shares message_id + thread_id with the
-		# Sent row so a reply from the Inbox continues the same chain.
-			cursor.execute(
-				'''INSERT INTO emails
-				   (sender_id, recipient_id, source_email_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
-				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
-				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-				           %s, %s, %s, %s, %s)
-				   RETURNING id''',
-				(sender_id, recipient_id_local, email_id, inbox['id'], subject, body, body_html, raw_email_str, headers_str,
-				 datetime.now(timezone.utc), False,
-				 message_id, in_reply_to, references, thread_id, subject_normalized_value)
-			)
-			recipient_email_id = cursor.fetchone()['id']
+			# Copy email to recipient's inbox using security definer function (bypasses RLS)
+			try:
+				cursor.execute(
+					'''SELECT insert_email_to_folder(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+					(sender_id, recipient_id_local, email_id, inbox_id, subject, body, body_html, raw_email_str, headers_str,
+					 False,
+					 message_id, in_reply_to, references, thread_id, subject_normalized_value)
+				)
+				recipient_email_id = cursor.fetchone()['insert_email_to_folder']
+			except Exception as e:
+				logger.error(f"FAILED at insert_email_to_folder (inbox copy) for recipient {recipient_id_local}: {e}")
+				raise
 
 			# Add recipient entry (type preserved)
-			cursor.execute(
-				'''INSERT INTO email_recipients (email_id, user_id, recipient_email, recipient_type)
-				   VALUES (%s, %s, %s, %s)''',
-				(recipient_email_id, recipient_id_local, to_address, recipient_type)
-			)
+			try:
+				cursor.execute(
+					'SELECT insert_email_recipient(%s, %s, %s, %s)',
+					(recipient_email_id, recipient_id_local, to_address, recipient_type)
+				)
+			except Exception as e:
+				logger.error(f"FAILED at insert_email_recipient (local) for {to_address}: {e}")
+				raise
 
 			# PR1 — enqueue embedding for this local Inbox copy. Per-folder
 			# policy runs against the recipient's folder (Inbox by default,
 			# which is disabled — so subject-only embedding happens here).
 			try:
 				enqueue_embedding_job(recipient_email_id,
-				                       folder_id=inbox['id'],
+				                       folder_id=inbox_id,
 				                       user_id=recipient_id_local,
 				                       reason='outbound_inbox_copy')
 			except Exception as _e:
