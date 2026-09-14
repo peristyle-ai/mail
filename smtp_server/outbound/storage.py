@@ -38,9 +38,20 @@ def _get_db_with_user(user_id: int):
 	return conn
 
 
-def get_or_create_sent_folder(user_id: int) -> int:
-	"""Get or create the Sent folder for a user."""
-	conn = _get_db_with_user(user_id)
+def get_or_create_sent_folder(user_id: int, conn=None) -> int:
+	"""Get or create the Sent folder for a user.
+	
+	Args:
+		user_id: The user ID
+		conn: Optional existing connection with RLS context set.
+		      If None, creates a new connection with _get_db_with_user.
+	"""
+	if conn is None:
+		conn = _get_db_with_user(user_id)
+		should_close = True
+	else:
+		should_close = False
+	
 	cursor = conn.cursor()
 	
 	try:
@@ -68,7 +79,8 @@ def get_or_create_sent_folder(user_id: int) -> int:
 		
 	finally:
 		cursor.close()
-		conn.close()
+		if should_close:
+			conn.close()
 
 
 def queue_outbound_email(
@@ -155,8 +167,8 @@ def queue_outbound_email(
 		# Extract HTML body from message
 		_, body_html = extract_bodies(message)
 
-		# Get Sent folder
-		sent_folder_id = get_or_create_sent_folder(sender_id)
+		# Get Sent folder (pass existing connection to avoid creating a new one)
+		sent_folder_id = get_or_create_sent_folder(sender_id, conn)
 
 		# Convert headers to string
 		headers_str = ''
