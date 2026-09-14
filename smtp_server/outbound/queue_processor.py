@@ -144,7 +144,9 @@ class OutboundQueueProcessor:
 						row['attempt_count']
 					)
 				except Exception as e:
+					import traceback
 					logger.error(f"Error processing queue item {row['id']}: {e}")
+					logger.error(traceback.format_exc())
 			
 		finally:
 			cursor.close()
@@ -204,9 +206,9 @@ class OutboundQueueProcessor:
 			cc_local_recipients = [row['email'] for row in cursor.fetchall()]
 			
 			# Get sender's email address using security definer function
-			cursor.execute('SELECT get_user_email(%s)', (email_row['sender_id'],))
+			cursor.execute('SELECT get_user_email(%s) as email', (email_row['sender_id'],))
 			sender_row = cursor.fetchone()
-			if not sender_row or not sender_row[0]:
+			if not sender_row or not sender_row['email']:
 				logger.error(f"Sender {email_row['sender_id']} not found")
 				cursor.execute(
 					'SELECT update_queue_status(%s, %s, %s, %s, %s)',
@@ -215,7 +217,7 @@ class OutboundQueueProcessor:
 				conn.commit()
 				return
 			
-			from_address = sender_row[0]
+			from_address = sender_row['email']
 			relay_config = self._get_domain_relay_config(from_address)
 			use_relay = bool(
 				relay_config and relay_config['relay_username'] and
