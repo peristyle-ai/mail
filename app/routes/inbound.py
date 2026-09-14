@@ -21,6 +21,19 @@ from ..utils.embedding_enqueue import enqueue_embedding_job
 from ..utils.webhooks import verify_webhook_secret
 from ..utils.rate_limiter import check_rate_limit, record_attempt
 
+
+def _get_db_with_user(user_id: int):
+	"""Get a DB connection with the RLS user context set.
+	
+	Used by inbound routes which run outside the Flask request context
+	(so no thread-local user_id is set by token_required).
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	cursor.execute("SET app.user_id = %s", (str(user_id),))
+	cursor.close()
+	return conn
+
 inbound_bp = Blueprint('inbound', __name__)
 logger = logging.getLogger(__name__)
 
@@ -264,7 +277,7 @@ def find_or_create_sender(sender_email: str) -> int:
 
 
 def get_or_create_inbox(user_id: int) -> int:
-	conn = get_db_connection()
+	conn = _get_db_with_user(user_id)
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
@@ -521,7 +534,7 @@ def receive_inbound_webhook():
 			pass
 
 	# ── Store the email ─────────────────────────────────────────────────────────
-	conn = get_db_connection()
+	conn = _get_db_with_user(recipient_id)
 	cursor = conn.cursor()
 	try:
 		# --- Threading (RFC 2822) ---
