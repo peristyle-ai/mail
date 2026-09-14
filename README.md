@@ -18,7 +18,7 @@ A small local mail server with a REST API for local email management without SMT
 - **Search**: Full-text search with filters (read/unread/starred, folder, pagination)
 - **Attachments**: Upload and download file attachments (up to 10MB)
 - **API Documentation**: Interactive Swagger UI at `/docs`
-- **Security**: Protected endpoints, user data isolation, SQL injection prevention
+- **Security**: Protected endpoints, user data isolation, SQL injection prevention, Row-Level Security (RLS)
 
 ## Public Release Notes
 
@@ -293,6 +293,37 @@ psql -d mail_server_test -c "SELECT 1;"
 
 # Run tests with more detail
 pytest -v --tb=short
+```
+
+## Row-Level Security (RLS)
+
+The mail server uses PostgreSQL Row-Level Security to enforce tenant isolation at the database level. This ensures that users can only access their own data, even if the application layer has a bug.
+
+### How RLS Works
+
+1. After JWT authentication, the app sets `app.user_id` as a custom GUC (Grand Unified Configuration) parameter
+2. All subsequent queries automatically only see rows belonging to that user
+3. The queue processor uses `SECURITY DEFINER` functions to bypass RLS for background processing
+
+### RLS Migrations
+
+- `db/migrations/004_rls.sql` - Enables RLS on all user-data tables
+- `db/migrations/005_queue_processor_functions.sql` - Security definer functions for the queue processor
+
+### Important Notes
+
+- The queue processor runs in a background thread without a user context, so it uses security definer functions to access the data it needs while maintaining RLS for normal user connections
+- RLS policies are applied to the `mail_external_app` role
+- Superusers and table owners bypass RLS by default
+
+### Applying RLS Migrations
+
+```bash
+# Apply RLS migration (requires DB owner)
+psql -U mal_external -h localhost -d mail_server -f db/migrations/004_rls.sql
+
+# Apply queue processor functions (requires DB owner)
+psql -U mal_external -h localhost -d mail_server -f db/migrations/005_queue_processor_functions.sql
 ```
 
 ## License
