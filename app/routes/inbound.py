@@ -78,7 +78,7 @@ def extract_email(address: str) -> str:
 		email = address.lower().strip()
 	if len(email) > MAX_EMAIL_LENGTH:
 		return ''
-	if not re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', email):
+	if not re.match(r"^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.\-]+\.[a-z]{2,}$", email):
 		return ''
 	return email
 
