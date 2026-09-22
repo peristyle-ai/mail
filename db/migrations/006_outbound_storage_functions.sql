@@ -164,6 +164,32 @@ $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION insert_embedding_job(INTEGER) TO mail_external_app;
 
+-- ----- Copy attachments between emails -----------------------------------------
+-- Used to copy attachments from the Sent email to each recipient's Inbox copy.
+
+CREATE OR REPLACE FUNCTION copy_attachments_to_email(
+    p_source_email_id INTEGER,
+    p_target_email_id INTEGER
+)
+RETURNS INTEGER
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_count INTEGER := 0;
+BEGIN
+    INSERT INTO attachments (email_id, file_name, file_path, content_type, file_size, created_at)
+    SELECT p_target_email_id, file_name, file_path, content_type, file_size, NOW()
+    FROM attachments
+    WHERE email_id = p_source_email_id;
+    
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION copy_attachments_to_email(INTEGER, INTEGER) TO mail_external_app;
+
 -- ----- Smoke check ------------------------------------------------------------
 
 DO $$
