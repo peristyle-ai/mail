@@ -334,6 +334,19 @@ def queue_outbound_email(
 				logger.error(f"FAILED at insert_email_recipient (local) for {to_address}: {e}")
 				raise
 
+			# Copy attachments from Sent email to Inbox copy
+			try:
+				cursor.execute(
+					'SELECT copy_attachments_to_email(%s, %s)',
+					(email_id, recipient_email_id)
+				)
+				att_count = cursor.fetchone()['copy_attachments_to_email']
+				if att_count > 0:
+					logger.info(f"Copied {att_count} attachment(s) to inbox copy {recipient_email_id}")
+			except Exception as e:
+				logger.warning(f"Failed to copy attachments to inbox copy {recipient_email_id}: {e}")
+				# Don't raise — attachment copy failure shouldn't block the send
+
 			# PR1 — enqueue embedding for this local Inbox copy. Per-folder
 			# policy runs against the recipient's folder (Inbox by default,
 			# which is disabled — so subject-only embedding happens here).
