@@ -190,6 +190,34 @@ $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION copy_attachments_to_email(INTEGER, INTEGER) TO mail_external_app;
 
+-- ----- Insert single attachment record (cross-user safe) -----------------------
+-- Used when uploading an attachment to mirror it onto Inbox copies owned by
+-- different users.
+
+CREATE OR REPLACE FUNCTION insert_attachment_record(
+    p_email_id INTEGER,
+    p_user_id INTEGER,
+    p_file_name VARCHAR,
+    p_content_type VARCHAR,
+    p_file_size BIGINT,
+    p_file_path VARCHAR
+)
+RETURNS INTEGER
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_attachment_id INTEGER;
+BEGIN
+    INSERT INTO attachments (email_id, user_id, file_name, content_type, file_size, file_path, created_at)
+    VALUES (p_email_id, p_user_id, p_file_name, p_content_type, p_file_size, p_file_path, NOW())
+    RETURNING id INTO v_attachment_id;
+    RETURN v_attachment_id;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION insert_attachment_record(INTEGER, INTEGER, VARCHAR, VARCHAR, BIGINT, VARCHAR) TO mail_external_app;
+
 -- ----- Smoke check ------------------------------------------------------------
 
 DO $$
