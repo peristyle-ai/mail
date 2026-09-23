@@ -243,14 +243,11 @@ def upload_attachment(email_id):
 		sibling_emails = cursor.fetchall()
 
 		for sibling_email in sibling_emails:
-			insert_attachment_record(
-				cursor,
-				sibling_email['id'],
-				sibling_email['owner_user_id'],
-				file.filename,
-				file.content_type,
-				file_size,
-				file_path,
+			# Use security definer function to bypass RLS (cross-user insert)
+			cursor.execute(
+				'SELECT insert_attachment_record(%s, %s, %s, %s, %s, %s)',
+				(sibling_email['id'], sibling_email['owner_user_id'],
+				 file.filename, file.content_type, file_size, file_path)
 			)
 			cursor.fetchone()
 	conn.commit()
