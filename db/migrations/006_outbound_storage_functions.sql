@@ -209,8 +209,10 @@ AS $$
 DECLARE
     v_attachment_id INTEGER;
 BEGIN
-    INSERT INTO attachments (email_id, user_id, file_name, content_type, file_size, file_path, created_at)
-    VALUES (p_email_id, p_user_id, p_file_name, p_content_type, p_file_size, p_file_path, NOW())
+    -- Note: p_user_id is accepted for future compatibility but not used
+    -- (attachments table has no user_id column; RLS is via email's folder)
+    INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path, created_at)
+    VALUES (p_email_id, p_file_name, p_content_type, p_file_size, p_file_path, NOW())
     RETURNING id INTO v_attachment_id;
     RETURN v_attachment_id;
 END;
