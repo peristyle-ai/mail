@@ -220,6 +220,29 @@ $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION insert_attachment_record(INTEGER, INTEGER, VARCHAR, VARCHAR, BIGINT, VARCHAR) TO mail_external_app;
 
+-- ----- Find sibling inbox copies for an email ----------------------------------
+-- Used to find Inbox copies created from a Sent email (for attachment mirroring).
+-- Returns email id and owner user_id for each sibling.
+
+CREATE OR REPLACE FUNCTION find_sibling_inbox_copies(p_source_email_id INTEGER)
+RETURNS TABLE (
+    email_id INTEGER,
+    owner_user_id INTEGER
+)
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT e.id, f.user_id
+    FROM emails e
+    JOIN folders f ON e.folder_id = f.id
+    WHERE e.source_email_id = p_source_email_id;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION find_sibling_inbox_copies(INTEGER) TO mail_external_app;
+
 -- ----- Smoke check ------------------------------------------------------------
 
 DO $$
