@@ -233,11 +233,9 @@ def upload_attachment(email_id):
 
 	# Mirror the uploaded attachment onto local inbox copies created from the same send.
 	if email['folder_name'] == 'Sent':
+		# Use security definer function to bypass RLS (sender can't see recipient's Inbox)
 		cursor.execute(
-			'''SELECT e.id, f.user_id AS owner_user_id
-			   FROM emails e
-			   JOIN folders f ON e.folder_id = f.id
-			   WHERE e.source_email_id = %s''',
+			'SELECT * FROM find_sibling_inbox_copies(%s)',
 			(email_id,)
 		)
 		sibling_emails = cursor.fetchall()
@@ -246,7 +244,7 @@ def upload_attachment(email_id):
 			# Use security definer function to bypass RLS (cross-user insert)
 			cursor.execute(
 				'SELECT insert_attachment_record(%s, %s, %s, %s, %s, %s)',
-				(sibling_email['id'], sibling_email['owner_user_id'],
+				(sibling_email['email_id'], sibling_email['owner_user_id'],
 				 file.filename, file.content_type, file_size, file_path)
 			)
 			cursor.fetchone()
