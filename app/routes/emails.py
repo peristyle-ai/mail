@@ -416,19 +416,81 @@ def create_email():
 		if val and ('<' in val or '>' in val):
 			return jsonify({'error': f'{label} must not contain angle brackets'}), 400
 
+	# Check if this is a draft (folder_id provided and not Sent)
+	folder_id = data.get('folder_id')
+	is_draft = False
+	if folder_id:
+		conn = get_db_connection()
+		c = conn.cursor()
+		c.execute('SELECT name FROM folders WHERE id = %s AND user_id = %s', (folder_id, request.current_user['id']))
+		folder_row = c.fetchone()
+		c.close()
+		conn.close()
+		if folder_row and folder_row['name'] != 'Sent':
+			is_draft = True
+
 	try:
-		email_id, queue_ids = queue_outbound_email(
-			sender_id=request.current_user['id'],
-			from_address=from_address,
-			to_addresses=normalized_recipients,
-			cc_addresses=normalized_cc,
-			subject=data.get('subject', ''),
-			body=data.get('body', ''),
-			message=msg,
-			headers=dict(msg.items()),
-			in_reply_to=in_reply_to,
-			references=references,
-		)
+		if is_draft:
+			# Store directly in the specified folder without queuing
+			from smtp_server.outbound.storage import _get_db_with_user, get_or_create_sent_folder
+			from app.utils.emails import compute_thread_id, normalize_subject
+			from datetime import datetime, timezone
+			
+			conn = _get_db_with_user(request.current_user['id'])
+			cursor = conn.cursor()
+			
+			# Compute thread_id
+			subj_norm = normalize_subject(data.get('subject', ''))
+			thread_id, _strategy = compute_thread_id(
+				cursor,
+				message_id=None,
+				in_reply_to=in_reply_to,
+				references_chain=references,
+				candidate_root_id=None,
+				subject_normalized=subj_norm,
+			)
+			subject_normalized_value = subj_norm if subj_norm and not (in_reply_to or references) else None
+			
+			# Generate Message-ID
+			import uuid as _uuid
+			domain = from_address.split('@')[-1].lower() if '@' in from_address else 'localhost'
+			message_id = f"{_uuid.uuid4()}@{domain}"
+			msg['Message-ID'] = f"<{message_id}>"
+			
+			# Store in emails table
+			raw_email_str = msg.as_string() if msg else ''
+			headers_str = '\n'.join(f"{k}: {v}" for k, v in msg.items())
+			
+			cursor.execute(
+				'''INSERT INTO emails
+				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
+				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
+				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+				           %s, %s, %s, %s, %s)
+				   RETURNING id''',
+				(request.current_user['id'], None, folder_id, data.get('subject', ''), data.get('body', ''), None,
+				 raw_email_str, headers_str, datetime.now(timezone.utc), True,
+				 message_id, in_reply_to, references, thread_id, subject_normalized_value)
+			)
+			email_id = cursor.fetchone()['id']
+			conn.commit()
+			cursor.close()
+			conn.close()
+			
+			queue_ids = []
+		else:
+			email_id, queue_ids = queue_outbound_email(
+				sender_id=request.current_user['id'],
+				from_address=from_address,
+				to_addresses=normalized_recipients,
+				cc_addresses=normalized_cc,
+				subject=data.get('subject', ''),
+				body=data.get('body', ''),
+				message=msg,
+				headers=dict(msg.items()),
+				in_reply_to=in_reply_to,
+				references=references,
+			)
 		# Pull the generated Message-ID + thread_id back from the stored Sent row.
 		# queue_outbound_email set them on `msg` (which is what was stored in
 		# raw_email), so they're consistent.
