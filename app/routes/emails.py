@@ -406,7 +406,15 @@ def create_email():
 	msg['To'] = ', '.join(normalized_recipients)
 	if normalized_cc:
 		msg['Cc'] = ', '.join(normalized_cc)
-	msg.set_content(data.get('body', ''))
+	
+	# Support HTML body (for forwards with formatting)
+	body_html = data.get('body_html', '')
+	if body_html:
+		# Create multipart/alternative with both plain text and HTML
+		msg.set_content(data.get('body', ''))
+		msg.add_alternative(body_html, subtype='html')
+	else:
+		msg.set_content(data.get('body', ''))
 
 	# --- Threading fields (optional; for replies) ---
 	in_reply_to = (data.get('in_reply_to') or '').strip() or None
