@@ -76,7 +76,7 @@ def format_email_response(email_dict):
 		try:
 			parsed = message_from_string(body)
 			from smtp_server.email_storage import extract_bodies
-			extracted_text, extracted_html = extract_bodies(parsed)
+			extracted_text, extracted_html, extracted_calendar = extract_bodies(parsed)
 			if extracted_text:
 				result['body'] = extracted_text
 			if extracted_html:
@@ -682,7 +682,7 @@ def create_mime_email():
 		from smtp_server.email_storage import extract_subject, extract_bodies
 
 		subject = extract_subject(msg)
-		plain_text, body_html_from_msg = extract_bodies(msg)
+		plain_text, body_html_from_msg, calendar_from_msg = extract_bodies(msg)
 		body_preview = plain_text
 
 		# Prepare headers - clean any newlines that could break DKIM
