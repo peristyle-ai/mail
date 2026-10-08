@@ -28,7 +28,7 @@ Content-Type: text/html; charset=utf-8
 --boundary123--
 '''
 		msg = message_from_string(multipart_email)
-		plain_text, html = extract_bodies(msg)
+		plain_text, html, _ = extract_bodies(msg)
 		
 		assert 'Plain text content' in plain_text
 		assert '<html>' in html
@@ -44,7 +44,7 @@ Content-Type: text/plain; charset=utf-8
 Just plain text body
 '''
 		msg = message_from_string(plain_email)
-		plain_text, html = extract_bodies(msg)
+		plain_text, html, _ = extract_bodies(msg)
 		
 		assert 'Just plain text body' in plain_text
 		assert html == ''
@@ -59,7 +59,7 @@ Content-Type: text/html; charset=utf-8
 <html><body><p>HTML only</p></body></html>
 '''
 		msg = message_from_string(html_email)
-		plain_text, html = extract_bodies(msg)
+		plain_text, html, _ = extract_bodies(msg)
 		
 		assert plain_text == ''
 		assert '<html>' in html
@@ -89,7 +89,7 @@ Attachment content
 --boundary123--
 '''
 		msg = message_from_string(multipart_with_attachment)
-		plain_text, html = extract_bodies(msg)
+		plain_text, html, _ = extract_bodies(msg)
 		
 		assert 'Plain text with attachment' in plain_text
 		assert 'HTML with attachment' in html
@@ -124,7 +124,7 @@ Article Title
 --medium_boundary--
 '''
 		msg = message_from_string(medium_email)
-		plain_text, html = extract_bodies(msg)
+		plain_text, html, _ = extract_bodies(msg)
 		
 		# Article URL should be in HTML but not plain text
 		assert 'article-slug-abc123' not in plain_text

@@ -165,7 +165,7 @@ def queue_outbound_email(
 
 	try:
 		# Extract HTML body from message
-		_, body_html = extract_bodies(message)
+		_, body_html, _ = extract_bodies(message)
 
 		# Get Sent folder (pass existing connection to avoid creating a new one)
 		sent_folder_id = get_or_create_sent_folder(sender_id, conn)

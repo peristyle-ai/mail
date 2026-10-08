@@ -29,12 +29,14 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 def extract_bodies(msg: EmailMessage) -> tuple:
     """
     Extract plain text and HTML bodies from email message.
+    Also extracts calendar content (text/calendar) for meeting invites.
     
     Returns:
-        tuple: (plain_text, html)
+        tuple: (plain_text, html, calendar)
     """
     plain_text = ""
     html = ""
+    calendar = ""
     
     if msg.is_multipart():
         for part in msg.walk():
@@ -61,6 +63,8 @@ def extract_bodies(msg: EmailMessage) -> tuple:
                 plain_text = decoded
             elif content_type == "text/html" and not html:
                 html = decoded
+            elif content_type == "text/calendar" and not calendar:
+                calendar = decoded
     else:
         # Single part email
         content_type = msg.get_content_type()
@@ -76,10 +80,19 @@ def extract_bodies(msg: EmailMessage) -> tuple:
             
             if content_type == "text/html":
                 html = decoded
+            elif content_type == "text/calendar":
+                calendar = decoded
             else:
                 plain_text = decoded
     
-    return plain_text, html
+    # If HTML is empty but we have calendar content, create a readable HTML version
+    if not html and calendar:
+        html = f'''<div style="font-family: sans-serif; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+<h2 style="margin-top: 0; color: #333;">Meeting Invitation</h2>
+<pre style="background: white; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 13px; white-space: pre-wrap;">{calendar}</pre>
+</div>'''
+    
+    return plain_text, html, calendar
 
 
 def extract_subject(msg: EmailMessage) -> str:
@@ -194,7 +207,7 @@ def store_email(sender: str, recipient: str, message: EmailMessage, raw_data: by
         
         # Extract email data
         subject = extract_subject(message)
-        body, body_html = extract_bodies(message)
+        body, body_html, calendar = extract_bodies(message)
         
         # Get headers as string
         headers_str = ''

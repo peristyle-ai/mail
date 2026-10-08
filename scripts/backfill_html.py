@@ -64,7 +64,7 @@ def backfill_html_bodies(dry_run: bool = False, limit: int = None):
             msg = message_from_string(raw_email)
             
             # Extract HTML body
-            plain_text, html_body = extract_bodies(msg)
+            plain_text, html_body, calendar = extract_bodies(msg)
             
             if html_body:
                 print(f"Email {email_id}: Found HTML ({len(html_body)} bytes)")
