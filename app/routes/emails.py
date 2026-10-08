@@ -85,6 +85,20 @@ def format_email_response(email_dict):
 				result['html'] = ''
 		except Exception:
 			pass
+	# Extract calendar content if present (meeting invites)
+	if 'text/calendar' in body or 'BEGIN:VCALENDAR' in body:
+		try:
+			parsed = message_from_string(body)
+			for part in parsed.walk():
+				if part.get_content_type() == 'text/calendar':
+					cal_content = part.get_content()
+					result['calendar'] = cal_content
+					# If HTML is empty, use calendar as the main content
+					if not result.get('html') or len(result.get('html', '').strip()) < 100:
+						result['html'] = f'<pre>{cal_content}</pre>'
+					break
+		except Exception:
+			pass
 	# Create sender object from joined data
 	sender_email = result.pop('sender_email', None)
 	if sender_email:
