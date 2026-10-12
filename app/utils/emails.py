@@ -14,6 +14,7 @@ Pure helpers (no DB):
 DB-backed helpers (need a cursor passed in):
     * compute_thread_id
 """
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from __future__ import annotations
 
 import re
@@ -132,7 +133,7 @@ def _resolve_by_references(cursor, refs: str, candidate_root_id: Optional[int]) 
         return None, "no_refs"
     for mid in refs.split():
         cursor.execute(
-            "SELECT id, thread_id FROM emails WHERE message_id = %s LIMIT 1",
+            f"SELECT id, thread_id FROM {cfg.t('emails')} WHERE message_id = %s LIMIT 1",
             (mid,),
         )
         row = cursor.fetchone()
@@ -141,7 +142,7 @@ def _resolve_by_references(cursor, refs: str, candidate_root_id: Optional[int]) 
                 return row["thread_id"], "references"
             new_tid = str(uuid.uuid4())
             cursor.execute(
-                "UPDATE emails SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
+                f"UPDATE {cfg.t('emails')} SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
                 (new_tid, row["id"]),
             )
             return new_tid, "references"
@@ -178,7 +179,7 @@ def _resolve_by_in_reply_to(cursor, irt: str, candidate_root_id: Optional[int]) 
         if not row["in_reply_to"]:
             new_tid = str(uuid.uuid4())
             cursor.execute(
-                "UPDATE emails SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
+                f"UPDATE {cfg.t('emails')} SET thread_id = %s WHERE id = %s AND thread_id IS NULL",
                 (new_tid, row["id"]),
             )
             return new_tid, "in_reply_to"
@@ -189,13 +190,13 @@ def _resolve_by_in_reply_to(cursor, irt: str, candidate_root_id: Optional[int]) 
 def _participants_key(cursor, email_id: int) -> Optional[frozenset]:
     """Return a stable set of (sender_id, recipient_user_ids) for an email.
     None if sender is missing (shouldn't happen, but be defensive)."""
-    cursor.execute("SELECT sender_id FROM emails WHERE id = %s", (email_id,))
+    cursor.execute(f"SELECT sender_id FROM {cfg.t('emails')} WHERE id = %s", (email_id,))
     row = cursor.fetchone()
     if not row or row["sender_id"] is None:
         return None
     sender_id = row["sender_id"]
     cursor.execute(
-        "SELECT user_id FROM email_recipients WHERE email_id = %s",
+        f"SELECT user_id FROM {cfg.t('email_recipients')} WHERE email_id = %s",
         (email_id,),
     )
     recipients = {r["user_id"] for r in cursor.fetchall()}

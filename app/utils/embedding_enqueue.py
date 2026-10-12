@@ -13,6 +13,8 @@ policy in one place.  A new email in 'Inbox' (default disabled) does not
 get enqueued at all.
 """
 
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from __future__ import annotations
 
 import logging
@@ -62,11 +64,11 @@ def _resolve_folder_name(folder_id: Optional[int], user_id: Optional[int]) -> st
         cursor = conn.cursor()
         if user_id is not None:
             cursor.execute(
-                'SELECT name FROM folders WHERE id = %s AND user_id = %s',
+                'SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s',
                 (folder_id, user_id),
             )
         else:
-            cursor.execute('SELECT name FROM folders WHERE id = %s', (folder_id,))
+            cursor.execute('SELECT name FROM {cfg.t("folders")} WHERE id = %s', (folder_id,))
         row = cursor.fetchone()
         cursor.close()
         conn.close()

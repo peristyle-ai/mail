@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from app.utils.webhooks import generate_webhook_secret, hash_webhook_secret
@@ -69,7 +71,7 @@ def list_domains():
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
 			   created_at, updated_at
-			   FROM domains
+			   FROM {cfg.t("domains")}
 			   ORDER BY domain'''
 		)
 		rows = cursor.fetchall()
@@ -111,7 +113,7 @@ def get_domain(domain):
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
 			   created_at, updated_at
-			   FROM domains WHERE domain = %s''',
+			   FROM {cfg.t("domains")} WHERE domain = %s''',
 			(domain_name,)
 		)
 		row = cursor.fetchone()
@@ -175,7 +177,7 @@ def set_domain_relay(domain):
 		# Encrypt the relay password before storing
 		encrypted_password = encrypt_field(password)
 		cursor.execute(
-			'''INSERT INTO domains (
+			'''INSERT INTO {cfg.t("domains")} (
 			   domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, updated_at
@@ -242,7 +244,7 @@ def verify_domain_relay(domain):
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
 			   created_at, updated_at
-			   FROM domains WHERE domain = %s''',
+			   FROM {cfg.t("domains")} WHERE domain = %s''',
 			(domain_name,)
 		)
 		row = cursor.fetchone()
@@ -262,7 +264,7 @@ def verify_domain_relay(domain):
 			return jsonify({'success': False, 'error': message}), 400
 
 		cursor.execute(
-			'''UPDATE domains
+			'''UPDATE {cfg.t("domains")}
 			   SET relay_verified = TRUE,
 			       relay_verified_at = CURRENT_TIMESTAMP,
 			       updated_at = CURRENT_TIMESTAMP
@@ -277,7 +279,7 @@ def verify_domain_relay(domain):
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
 			   created_at, updated_at
-			   FROM domains WHERE domain = %s''',
+			   FROM {cfg.t("domains")} WHERE domain = %s''',
 			(domain_name,)
 		)
 		verified_row = cursor.fetchone()
@@ -318,7 +320,7 @@ def delete_domain_relay(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''UPDATE domains
+			'''UPDATE {cfg.t("domains")}
 			   SET relay_provider = NULL,
 			       relay_host = NULL,
 			       relay_port = 2525,
@@ -383,7 +385,7 @@ def set_domain_webhook_secret(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''INSERT INTO domains (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
 			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 			   ON CONFLICT (domain) DO UPDATE SET
 			   webhook_secret = EXCLUDED.webhook_secret,
@@ -437,7 +439,7 @@ def rotate_domain_webhook_secret(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''INSERT INTO domains (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
 			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 			   ON CONFLICT (domain) DO UPDATE SET
 			   webhook_secret = EXCLUDED.webhook_secret,

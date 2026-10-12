@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
 from app.utils.auth import token_required
@@ -23,8 +25,8 @@ def _hydrate_emails(email_ids):
 	# Use ANY(%s) for the IN clause.
 	cursor.execute(
 		'''SELECT e.*, f.name AS folder_name, f.user_id AS folder_user_id
-		   FROM emails e
-		   LEFT JOIN folders f ON f.id = e.folder_id
+		   FROM {cfg.t("emails")} e
+		   LEFT JOIN {cfg.t("folders")} f ON f.id = e.folder_id
 		   WHERE e.id = ANY(%s)''',
 		(email_ids,),
 	)
@@ -139,8 +141,8 @@ def search_emails():
 		               e.sender_id, e.recipient_id, e.source_email_id,
 		               e.message_id, e.in_reply_to, e.references_chain,
 		               e.thread_id, e.subject_normalized
-		          FROM emails e
-		          JOIN folders f ON e.folder_id = f.id
+		          FROM {cfg.t("emails")} e
+		          JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 		          WHERE f.user_id = %s'''
 		if folder_id:
 			sql += ' AND e.folder_id = %s'
@@ -155,7 +157,7 @@ def search_emails():
 		params.extend([limit, (page - 1) * limit])
 		cursor.execute(sql, params)
 		emails = cursor.fetchall()
-		cursor.execute('SELECT COUNT(*) AS n FROM emails e JOIN folders f ON e.folder_id = f.id WHERE f.user_id = %s', [user_id])
+		cursor.execute('SELECT COUNT(*) AS n FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE f.user_id = %s', [user_id])
 		total = cursor.fetchone()['n']
 		cursor.close()
 		conn.close()

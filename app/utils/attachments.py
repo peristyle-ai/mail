@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 import os
 import uuid
 from flask import request, jsonify
@@ -26,7 +28,7 @@ def save_attachment(attachment_data, email_id, user_id):
     cursor = conn.cursor()
     
     cursor.execute(
-        'INSERT INTO attachments (email_id, filename, content_type, file_path, file_size, user_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+        'INSERT INTO {cfg.t("attachments")} (email_id, filename, content_type, file_path, file_size, user_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
         (email_id, attachment_data['filename'], attachment_data['content_type'], attachment_data['file_path'], attachment_data['file_size'], user_id)
     )
     
@@ -41,7 +43,7 @@ def get_email_attachments(email_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT * FROM attachments WHERE email_id = %s', (email_id,))
+    cursor.execute('SELECT * FROM {cfg.t("attachments")} WHERE email_id = %s', (email_id,))
     attachments = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -52,7 +54,7 @@ def delete_attachment(attachment_id, user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT file_path FROM attachments WHERE id = %s AND user_id = %s', (attachment_id, user_id))
+    cursor.execute('SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
     attachment = cursor.fetchone()
     
     if not attachment:
@@ -62,7 +64,7 @@ def delete_attachment(attachment_id, user_id):
     if os.path.exists(file_path):
         os.remove(file_path)
     
-    cursor.execute('DELETE FROM attachments WHERE id = %s', (attachment_id,))
+    cursor.execute('DELETE FROM {cfg.t("attachments")} WHERE id = %s', (attachment_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -73,7 +75,7 @@ def get_attachment_path(attachment_id, user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT file_path FROM attachments WHERE id = %s AND user_id = %s', (attachment_id, user_id))
+    cursor.execute('SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
     attachment = cursor.fetchone()
     cursor.close()
     conn.close()
