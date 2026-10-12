@@ -1,5 +1,15 @@
+-- Phase 1a: SET search_path to the configured mail schema so that all subsequent
+-- CREATE TABLE statements install into that schema. The default schema ('public')
+-- preserves the legacy standalone-DB install behaviour; the schema-mode install
+-- uses MAIL_SCHEMA=mail (or whatever the customer picks).
+-- The application code is being migrated in follow-up chunks (1b/1c) to reference
+-- tables via cfg.t("<table>") instead of unqualified names. For v0.3, the
+-- search_path approach keeps the existing DDL byte-identical when MAIL_SCHEMA=public
+-- and produces mail.<table> when MAIL_SCHEMA=mail.
+SET search_path TO mail, public;
+
 -- Users table
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
 	id SERIAL PRIMARY KEY,
 	email VARCHAR(255) UNIQUE NOT NULL,
 	password_hash VARCHAR(255) NOT NULL,
@@ -10,7 +20,7 @@ CREATE TABLE users (
 );
 
 -- Folders table (Inbox, Sent, Drafts, Trash, custom folders)
-CREATE TABLE folders (
+CREATE TABLE IF NOT EXISTS folders (
 	id SERIAL PRIMARY KEY,
 	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	name VARCHAR(100) NOT NULL,
@@ -20,7 +30,7 @@ CREATE TABLE folders (
 );
 
 -- Emails table
-CREATE TABLE emails (
+CREATE TABLE IF NOT EXISTS emails (
 	id SERIAL PRIMARY KEY,
 	sender_id INTEGER NOT NULL REFERENCES users(id),
 	recipient_id INTEGER REFERENCES users(id),
@@ -37,7 +47,7 @@ CREATE TABLE emails (
 );
 
 -- Email recipients (for multiple TO/CC/BCC)
-CREATE TABLE email_recipients (
+CREATE TABLE IF NOT EXISTS email_recipients (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
 	user_id INTEGER REFERENCES users(id),
@@ -47,7 +57,7 @@ CREATE TABLE email_recipients (
 );
 
 -- Attachments table
-CREATE TABLE attachments (
+CREATE TABLE IF NOT EXISTS attachments (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
 	file_name VARCHAR(255) NOT NULL,
@@ -58,7 +68,7 @@ CREATE TABLE attachments (
 );
 
 -- Greylisting table for spam reduction
-CREATE TABLE greylist (
+CREATE TABLE IF NOT EXISTS greylist (
 	id SERIAL PRIMARY KEY,
 	client_ip INET NOT NULL,
 	sender VARCHAR(255) NOT NULL,
@@ -70,7 +80,7 @@ CREATE TABLE greylist (
 );
 
 -- Rate limit violations tracking
-CREATE TABLE rate_limit_violations (
+CREATE TABLE IF NOT EXISTS rate_limit_violations (
 	id SERIAL PRIMARY KEY,
 	client_ip INET NOT NULL,
 	violation_type VARCHAR(50) NOT NULL,
@@ -96,7 +106,7 @@ CREATE INDEX idx_rate_violations_time ON rate_limit_violations(timestamp);
 -- ============================================
 
 -- IP Blacklist table (immediate rejection)
-CREATE TABLE ip_blacklist (
+CREATE TABLE IF NOT EXISTS ip_blacklist (
 	id SERIAL PRIMARY KEY,
 	ip_address INET NOT NULL UNIQUE,
 	reason VARCHAR(255),
@@ -116,7 +126,7 @@ CREATE INDEX idx_ip_blacklist_expires ON ip_blacklist(expires_at);
 -- ============================================
 
 -- Sender Blocklist table (blocks specific emails or entire domains)
-CREATE TABLE sender_blocklist (
+CREATE TABLE IF NOT EXISTS sender_blocklist (
 	id SERIAL PRIMARY KEY,
 	email VARCHAR(255),
 	domain VARCHAR(255),
@@ -135,7 +145,7 @@ CREATE UNIQUE INDEX idx_sender_blocklist_domain ON sender_blocklist(domain) WHER
 -- ============================================
 
 -- Outbound email queue for external delivery
-CREATE TABLE outbound_queue (
+CREATE TABLE IF NOT EXISTS outbound_queue (
 	id SERIAL PRIMARY KEY,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
 	recipient_email VARCHAR(255) NOT NULL,
@@ -151,7 +161,7 @@ CREATE TABLE outbound_queue (
 );
 
 -- Delivery logs for tracking all attempts
-CREATE TABLE delivery_logs (
+CREATE TABLE IF NOT EXISTS delivery_logs (
 	id SERIAL PRIMARY KEY,
 	outbound_queue_id INTEGER REFERENCES outbound_queue(id) ON DELETE CASCADE,
 	email_id INTEGER NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
@@ -170,7 +180,7 @@ CREATE INDEX idx_outbound_domain ON outbound_queue(recipient_domain);
 CREATE INDEX idx_delivery_logs_email ON delivery_logs(email_id);
 
 -- Per-domain outbound relay configuration
-CREATE TABLE domains (
+CREATE TABLE IF NOT EXISTS domains (
 	id SERIAL PRIMARY KEY,
 	domain VARCHAR(255) NOT NULL UNIQUE,
 	relay_provider VARCHAR(50),
@@ -194,7 +204,7 @@ CREATE INDEX idx_domains_relay_provider ON domains(relay_provider);
 CREATE INDEX idx_domains_relay_verified ON domains(relay_verified);
 
 -- Major email provider domains (greylist whitelist)
-CREATE TABLE major_providers (
+CREATE TABLE IF NOT EXISTS major_providers (
 	id SERIAL PRIMARY KEY,
 	domain VARCHAR(255) UNIQUE NOT NULL,
 	description VARCHAR(255),
