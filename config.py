@@ -509,6 +509,67 @@ class MailServerConfig:
 
 
 # Global configuration instance
+    # Database Schema Configuration (Phase 1a)
+    @property
+    def mail_schema(self) -> str:
+        """PostgreSQL schema where the mail server's tables live.
+
+        Default: 'public' (legacy standalone install; uses the DB public schema).
+        Recommended for schema-mode install: 'mail' (installs as a schema in an
+        existing customer DB; cohabits with the customer's other apps).
+
+        All mail tables (users, emails, folders, attachments, domains, blacklist,
+        rate_limit_attempts, etc.) live in this schema. Tables are referenced as
+        fully-qualified <MAIL_SCHEMA>.<table> throughout the code.
+
+        Override via the MAIL_SCHEMA environment variable.
+        """
+        return os.getenv("MAIL_SCHEMA", self._get_nested("database", "schema", default="public"))
+
+    @property
+    def mail_users_table(self) -> str:
+        """Fully-qualified name of the users table for auth.
+
+        Default: <MAIL_SCHEMA>.users (the mail server owns its own users table,
+        created by init_db.py at install time).
+
+        Opt-in override: any other fully-qualified table (e.g. 'public.users',
+        'cosmo_portal.users', 'identity.users') for cross-app credential sharing.
+        When set, the mail server:
+          - Asserts the table exists at install time (FAIL with a clear error if not).
+          - Does NOT create the table. Does NOT migrate it.
+          - Reads from it for auth (/auth/login, /auth/register existence check).
+          - Writes are limited to: INSERT on first registration, UPDATE on
+            password_hash (change-password) and api_key (regenerate).
+        No DELETE. No UPDATE on email/name/id; those are managed by the owner
+        of that users table.
+
+        NOTE: v0.3 does not implement the external-users-table code path yet.
+        Setting MAIL_USERS_TABLE to anything other than the default will be
+        treated as a no-op in v0.3. The opt-in path is targeted for a follow-up.
+
+        Override via the MAIL_USERS_TABLE environment variable.
+        """
+        return os.getenv("MAIL_USERS_TABLE", f"{self.mail_schema}.users")
+
+    def t(self, table: str) -> str:
+        """Return the fully-qualified name of a mail table.
+
+        Usage: cursor.execute("SELECT * FROM " + cfg.t("emails"))
+        Equivalent to: f"{self.mail_schema}.{table}"
+        """
+        return f"{self.mail_schema}.{table}"
+
+    def users_t(self) -> str:
+        """Return the fully-qualified name of the users table.
+
+        For v0.3, this just returns the same as t('users') when MAIL_USERS_TABLE
+        is unset (the default). The external-table path is a no-op until v0.4+.
+        """
+        return self.mail_users_table
+
+
+# Global configuration instance
 mail_config = MailServerConfig()
 
 
