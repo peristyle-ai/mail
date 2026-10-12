@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
 from app.utils.auth import token_required
@@ -33,7 +35,7 @@ def get_folders():
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM folders WHERE user_id = %s ORDER BY name', (request.current_user['id'],))
+	cursor.execute('SELECT * FROM {cfg.t("folders")} WHERE user_id = %s ORDER BY name', (request.current_user['id'],))
 	folders = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -77,7 +79,7 @@ def create_folder():
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('INSERT INTO folders (user_id, name, parent_id) VALUES (%s, %s, %s) RETURNING id', (request.current_user['id'], data['name'], data.get('parent_id')))
+	cursor.execute('INSERT INTO {cfg.t("folders")} (user_id, name, parent_id) VALUES (%s, %s, %s) RETURNING id', (request.current_user['id'], data['name'], data.get('parent_id')))
 	folder_id = cursor.fetchone()['id']
 	conn.commit()
 	cursor.close()

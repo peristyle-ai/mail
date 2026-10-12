@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
@@ -175,10 +177,10 @@ def list_emails():
 			       s.email as sender_email,
 			       r.email as recipient_email,
 			       f.name as folder_name
-			FROM emails e
-			LEFT JOIN users s ON e.sender_id = s.id
-			LEFT JOIN users r ON e.recipient_id = r.id
-			JOIN folders f ON e.folder_id = f.id
+			FROM {cfg.t("emails")} e
+			LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+			LEFT JOIN {cfg.users_t()} r ON e.recipient_id = r.id
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 			WHERE f.user_id = %s AND f.name = %s AND e.thread_id = %s
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], folder_name, thread_id))
@@ -188,10 +190,10 @@ def list_emails():
 			       s.email as sender_email,
 			       r.email as recipient_email,
 			       f.name as folder_name
-			FROM emails e
-			LEFT JOIN users s ON e.sender_id = s.id
-			LEFT JOIN users r ON e.recipient_id = r.id
-			JOIN folders f ON e.folder_id = f.id
+			FROM {cfg.t("emails")} e
+			LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+			LEFT JOIN {cfg.users_t()} r ON e.recipient_id = r.id
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 			WHERE f.user_id = %s AND f.name = %s
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], folder_name))
@@ -201,10 +203,10 @@ def list_emails():
 			       s.email as sender_email,
 			       r.email as recipient_email,
 			       f.name as folder_name
-			FROM emails e
-			LEFT JOIN users s ON e.sender_id = s.id
-			LEFT JOIN users r ON e.recipient_id = r.id
-			JOIN folders f ON e.folder_id = f.id
+			FROM {cfg.t("emails")} e
+			LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+			LEFT JOIN {cfg.users_t()} r ON e.recipient_id = r.id
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 			WHERE f.user_id = %s AND e.thread_id = %s
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], thread_id))
@@ -214,10 +216,10 @@ def list_emails():
 			       s.email as sender_email,
 			       r.email as recipient_email,
 			       f.name as folder_name
-			FROM emails e
-			LEFT JOIN users s ON e.sender_id = s.id
-			LEFT JOIN users r ON e.recipient_id = r.id
-			JOIN folders f ON e.folder_id = f.id
+			FROM {cfg.t("emails")} e
+			LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+			LEFT JOIN {cfg.users_t()} r ON e.recipient_id = r.id
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 			WHERE f.user_id = %s
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'],))
@@ -259,10 +261,10 @@ def get_email(email_id):
 		       s.email as sender_email, 
 		       r.email as recipient_email,
 		       f.name as folder_name
-		FROM emails e
-		LEFT JOIN users s ON e.sender_id = s.id
-		LEFT JOIN users r ON e.recipient_id = r.id
-		JOIN folders f ON e.folder_id = f.id
+		FROM {cfg.t("emails")} e
+		LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+		LEFT JOIN {cfg.users_t()} r ON e.recipient_id = r.id
+		JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 		WHERE e.id = %s AND f.user_id = %s
 	''', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
@@ -384,7 +386,7 @@ def create_email():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 
-	cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
+	cursor.execute('SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
 	sender_row = cursor.fetchone()
 	if not sender_row:
 		cursor.close()
@@ -444,7 +446,7 @@ def create_email():
 	if folder_id:
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT name FROM folders WHERE id = %s AND user_id = %s', (folder_id, request.current_user['id']))
+		c.execute('SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s', (folder_id, request.current_user['id']))
 		folder_row = c.fetchone()
 		c.close()
 		conn.close()
@@ -484,7 +486,7 @@ def create_email():
 			headers_str = '\n'.join(f"{k}: {v}" for k, v in msg.items())
 			
 			cursor.execute(
-				'''INSERT INTO emails
+				'''INSERT INTO {cfg.t("emails")}
 				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
 				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
 				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -519,7 +521,7 @@ def create_email():
 		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT thread_id FROM emails WHERE id = %s', (email_id,))
+		c.execute('SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
 		row = c.fetchone()
 		c.close()
 		conn.close()
@@ -616,7 +618,7 @@ def create_mime_email():
 		# Get sender's email from current user
 		conn = get_db_connection()
 		cursor = conn.cursor()
-		cursor.execute('SELECT email FROM users WHERE id = %s', (request.current_user['id'],))
+		cursor.execute('SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
 		sender_row = cursor.fetchone()
 		if not sender_row:
 			cursor.close()
@@ -775,7 +777,7 @@ def create_mime_email():
 			cursor = conn.cursor()
 			try:
 				cursor.execute(
-					'''INSERT INTO attachments (email_id, file_name, content_type, file_size, file_path, created_at)
+					'''INSERT INTO {cfg.t("attachments")} (email_id, file_name, content_type, file_size, file_path, created_at)
 					   VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id''',
 					(email_id, clean_filename, content_type, file_size, file_path)
 				)
@@ -796,7 +798,7 @@ def create_mime_email():
 		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT thread_id FROM emails WHERE id = %s', (email_id,))
+		c.execute('SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
 		row = c.fetchone()
 		c.close()
 		conn.close()
@@ -844,7 +846,7 @@ def mark_as_read(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET is_read = TRUE FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('UPDATE {cfg.t("emails")} SET is_read = TRUE FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -881,12 +883,12 @@ def toggle_starred(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT e.is_starred FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('SELECT e.is_starred FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
 	if not email:
 		return jsonify({'error': 'Email not found'}), 404
 	new_state = not email['is_starred']
-	cursor.execute('UPDATE emails SET is_starred = %s FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (new_state, email_id, request.current_user['id']))
+	cursor.execute('UPDATE {cfg.t("emails")} SET is_starred = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (new_state, email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -921,7 +923,7 @@ def delete_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('DELETE FROM emails USING folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute('DELETE FROM {cfg.t("emails")} USING folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -967,7 +969,7 @@ def move_email(email_id):
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE emails SET folder_id = %s FROM folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (data['folder_id'], email_id, request.current_user['id']))
+	cursor.execute('UPDATE {cfg.t("emails")} SET folder_id = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (data['folder_id'], email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -1058,7 +1060,7 @@ def get_delivery_status(email_id):
 	
 	# Verify email exists and belongs to user (delivery status is for sent emails)
 	cursor.execute(
-		'SELECT e.id FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
 		(email_id, request.current_user['id'])
 	)
 	email = cursor.fetchone()
@@ -1071,7 +1073,7 @@ def get_delivery_status(email_id):
 	cursor.execute(
 		'''SELECT id, recipient_email, status, attempt_count, 
 		   last_attempt, delivered_at, error_message
-		   FROM outbound_queue
+		   FROM {cfg.t("outbound_queue")}
 		   WHERE email_id = %s''',
 		(email_id,)
 	)
@@ -1103,7 +1105,7 @@ def get_delivery_status(email_id):
 	cursor.execute(
 		'''SELECT event_type, smtp_response, error_message, 
 		   remote_server, created_at
-		   FROM delivery_logs
+		   FROM {cfg.t("delivery_logs")}
 		   WHERE email_id = %s
 		   ORDER BY created_at DESC''',
 		(email_id,)
@@ -1158,9 +1160,9 @@ def _user_can_see_thread(cursor, user_id: int, thread_id: str) -> bool:
 	cursor.execute(
 		"""
 		SELECT EXISTS (
-			SELECT 1 FROM emails e
-			JOIN folders f ON e.folder_id = f.id
-			LEFT JOIN email_recipients er ON er.email_id = e.id
+			SELECT 1 FROM {cfg.t("emails")} e
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+			LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 			WHERE e.thread_id = %s
 			  AND f.user_id = %s
 			  AND (e.sender_id = %s OR er.user_id = %s)
@@ -1223,9 +1225,9 @@ def list_threads():
 			f"""
 			WITH visible AS (
 				SELECT e.*
-				FROM emails e
-				JOIN folders f ON e.folder_id = f.id
-				LEFT JOIN email_recipients er ON er.email_id = e.id
+				FROM {cfg.t("emails")} e
+				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 				WHERE {where_sql}
 			),
 			ranked AS (
@@ -1247,7 +1249,7 @@ def list_threads():
 				       s.email AS sender_email,
 				       s.name AS sender_name
 				FROM visible v
-				JOIN users s ON v.sender_id = s.id
+				JOIN {cfg.users_t()} s ON v.sender_id = s.id
 				ORDER BY v.thread_id, v.created_at DESC
 			)
 			SELECT r.thread_id,
@@ -1295,11 +1297,11 @@ def list_threads():
 				       ARRAY_AGG(DISTINCT s.email) FILTER (WHERE s.email IS NOT NULL) AS senders,
 				       ARRAY_AGG(DISTINCT r.email) FILTER (WHERE r.email IS NOT NULL) AS recipients,
 				       ARRAY_AGG(DISTINCT f.name) FILTER (WHERE f.name IS NOT NULL) AS folders
-				FROM emails e
-				JOIN folders f ON e.folder_id = f.id
-				LEFT JOIN users s ON e.sender_id = s.id
-				LEFT JOIN email_recipients er ON er.email_id = e.id
-				LEFT JOIN users r ON er.user_id = r.id
+				FROM {cfg.t("emails")} e
+				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+				LEFT JOIN {cfg.users_t()} s ON e.sender_id = s.id
+				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
+				LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
 				WHERE e.thread_id = ANY(%s::uuid[]) AND f.user_id = %s
 				GROUP BY e.thread_id
 				""",
@@ -1328,9 +1330,9 @@ def list_threads():
 		cursor.execute(
 			f"""
 			SELECT COUNT(DISTINCT e.thread_id) AS total
-			FROM emails e
-			JOIN folders f ON e.folder_id = f.id
-			LEFT JOIN email_recipients er ON er.email_id = e.id
+			FROM {cfg.t("emails")} e
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+			LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 			WHERE {where_sql} AND e.thread_id IS NOT NULL
 			""",
 			params,
@@ -1395,11 +1397,11 @@ def list_thread_messages(thread_id):
 			       er.recipient_type AS recipient_type,
 			       r.email AS recipient_user_email, r.name AS recipient_user_name,
 			       f.name AS folder_name
-			FROM emails e
-			JOIN folders f ON e.folder_id = f.id
-			JOIN users s ON e.sender_id = s.id
-			LEFT JOIN email_recipients er ON er.email_id = e.id
-			LEFT JOIN users r ON er.user_id = r.id
+			FROM {cfg.t("emails")} e
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+			JOIN {cfg.users_t()} s ON e.sender_id = s.id
+			LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
+			LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
 			WHERE e.thread_id = %s
 			  AND (e.sender_id = %s OR er.user_id = %s)
 			ORDER BY e.id ASC,
@@ -1420,8 +1422,8 @@ def list_thread_messages(thread_id):
 					'email': r['sender_email'],
 					'name': r['sender_name'],
 				},
-				# Primary recipient is from email_recipients.recipient_email (handles external too).
-				# Name comes from users table only when it's a local user (recipient_user_email == recipient_email).
+				# Primary recipient is from {cfg.t("email_recipients")}.recipient_email (handles external too).
+				# Name comes from {cfg.users_t()} table only when it's a local user (recipient_user_email == recipient_email).
 				'recipient': {
 					'email': r['recipient_email'],
 					'name': (r['recipient_user_name']
@@ -1488,12 +1490,12 @@ def mark_thread_read(thread_id):
 
 		cursor.execute(
 			"""
-			UPDATE emails
+			UPDATE {cfg.t("emails")}
 			SET is_read = TRUE
 			WHERE id IN (
-				SELECT e.id FROM emails e
-				JOIN folders f ON e.folder_id = f.id
-				LEFT JOIN email_recipients er ON er.email_id = e.id
+				SELECT e.id FROM {cfg.t("emails")} e
+				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 				WHERE e.thread_id = %s
 				  AND f.user_id = %s
 				  AND (e.sender_id = %s OR er.user_id = %s)
@@ -1545,9 +1547,9 @@ def toggle_thread_star(thread_id):
 		# Determine new state from any one message in the thread.
 		cursor.execute(
 			"""
-			SELECT is_starred FROM emails e
-			JOIN folders f ON e.folder_id = f.id
-			LEFT JOIN email_recipients er ON er.email_id = e.id
+			SELECT is_starred FROM {cfg.t("emails")} e
+			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+			LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 			WHERE e.thread_id = %s
 			  AND f.user_id = %s
 			  AND (e.sender_id = %s OR er.user_id = %s)
@@ -1563,12 +1565,12 @@ def toggle_thread_star(thread_id):
 
 		cursor.execute(
 			"""
-			UPDATE emails
+			UPDATE {cfg.t("emails")}
 			SET is_starred = %s
 			WHERE id IN (
-				SELECT e.id FROM emails e
-				JOIN folders f ON e.folder_id = f.id
-				LEFT JOIN email_recipients er ON er.email_id = e.id
+				SELECT e.id FROM {cfg.t("emails")} e
+				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
 				WHERE e.thread_id = %s
 				  AND f.user_id = %s
 				  AND (e.sender_id = %s OR er.user_id = %s)

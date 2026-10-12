@@ -5,6 +5,8 @@ Provides REST API for managing IP blacklist entries.
 All endpoints require JWT authentication.
 """
 
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from app.utils.auth import token_required
 from ..db import get_db_connection
@@ -112,7 +114,7 @@ def list_blacklisted_ips():
 	where_sql = ' WHERE ' + ' AND '.join(where_clauses) if where_clauses else ''
 	
 	# Get total count
-	count_sql = f'SELECT COUNT(*) as total FROM ip_blacklist{where_sql}'
+	count_sql = f'SELECT COUNT(*) as total FROM {cfg.t("ip_blacklist")}{where_sql}'
 	cursor.execute(count_sql, params)
 	total = cursor.fetchone()['total']
 	
@@ -121,7 +123,7 @@ def list_blacklisted_ips():
 	query_sql = f'''
 		SELECT id, ip_address::text as ip_address, reason, source, 
 		       expires_at, hit_count, created_at
-		FROM ip_blacklist
+		FROM {cfg.t("ip_blacklist")}
 		{where_sql}
 		ORDER BY created_at DESC
 		LIMIT %s OFFSET %s
@@ -236,9 +238,9 @@ def add_ip_to_blacklist():
 			except ValueError:
 				return jsonify({'error': 'Invalid expires_at format. Use ISO 8601 format.'}), 400
 		
-		# Insert into blacklist
+		# Insert into {cfg.t("blacklist")}
 		cursor.execute('''
-			INSERT INTO ip_blacklist (ip_address, reason, source, expires_at, created_by)
+			INSERT INTO {cfg.t("ip_blacklist")} (ip_address, reason, source, expires_at, created_by)
 			VALUES (%s::inet, %s, %s, %s, %s)
 			ON CONFLICT (ip_address) DO UPDATE SET
 				reason = EXCLUDED.reason,
@@ -291,7 +293,7 @@ def remove_blacklisted_ip(entry_id):
 	    description: Blacklist entry ID
 	responses:
 	  200:
-	    description: IP removed from blacklist
+	    description: IP removed from {cfg.t("blacklist")}
 	    schema:
 	      type: object
 	      properties:
@@ -310,7 +312,7 @@ def remove_blacklisted_ip(entry_id):
 	
 	# Get the IP address before deleting
 	cursor.execute(
-		'SELECT ip_address::text FROM ip_blacklist WHERE id = %s',
+		'SELECT ip_address::text FROM {cfg.t("ip_blacklist")} WHERE id = %s',
 		(entry_id,)
 	)
 	result = cursor.fetchone()
@@ -323,12 +325,12 @@ def remove_blacklisted_ip(entry_id):
 	ip_address = normalize_ip(result['ip_address'])
 	
 	# Delete the entry
-	cursor.execute('DELETE FROM ip_blacklist WHERE id = %s', (entry_id,))
+	cursor.execute('DELETE FROM {cfg.t("ip_blacklist")} WHERE id = %s', (entry_id,))
 	conn.commit()
 	cursor.close()
 	conn.close()
 	
-	logger.info(f"IP {ip_address} (entry {entry_id}) removed from blacklist by user {request.current_user['id']}")
+	logger.info(f"IP {ip_address} (entry {entry_id}) removed from {cfg.t("blacklist")} by user {request.current_user['id']}")
 	
 	return jsonify({
 		'status': 'removed',
@@ -351,11 +353,11 @@ def remove_blacklisted_ip_by_address(ip_address):
 	    name: ip_address
 	    type: string
 	    required: true
-	    description: IP address to remove from blacklist
+	    description: IP address to remove from {cfg.t("blacklist")}
 	    example: "192.168.1.100"
 	responses:
 	  200:
-	    description: IP removed from blacklist
+	    description: IP removed from {cfg.t("blacklist")}
 	    schema:
 	      type: object
 	      properties:
@@ -374,7 +376,7 @@ def remove_blacklisted_ip_by_address(ip_address):
 	
 	# Delete the entry
 	cursor.execute(
-		'DELETE FROM ip_blacklist WHERE ip_address = %s::inet RETURNING id',
+		'DELETE FROM {cfg.t("ip_blacklist")} WHERE ip_address = %s::inet RETURNING id',
 		(ip_address,)
 	)
 	result = cursor.fetchone()
@@ -388,7 +390,7 @@ def remove_blacklisted_ip_by_address(ip_address):
 	cursor.close()
 	conn.close()
 	
-	logger.info(f"IP {ip_address} removed from blacklist by user {request.current_user['id']}")
+	logger.info(f"IP {ip_address} removed from {cfg.t("blacklist")} by user {request.current_user['id']}")
 	
 	return jsonify({
 		'status': 'removed',
@@ -448,7 +450,7 @@ def check_ip_blacklisted(ip_address):
 	# Check if IP is blacklisted (and not expired)
 	cursor.execute('''
 		SELECT id, ip_address::text, reason, source, expires_at, hit_count, created_at
-		FROM ip_blacklist
+		FROM {cfg.t("ip_blacklist")}
 		WHERE ip_address = %s::inet
 		AND (expires_at IS NULL OR expires_at > %s)
 	''', (ip_address, datetime.now(timezone.utc)))
@@ -515,13 +517,13 @@ def get_blacklist_stats():
 	cursor = conn.cursor()
 	
 	# Total entries
-	cursor.execute('SELECT COUNT(*) as count FROM ip_blacklist')
+	cursor.execute('SELECT COUNT(*) as count FROM {cfg.t("ip_blacklist")}')
 	total = cursor.fetchone()['count']
 	
 	# Active entries (not expired)
 	cursor.execute('''
 		SELECT COUNT(*) as count 
-		FROM ip_blacklist 
+		FROM {cfg.t("ip_blacklist")} 
 		WHERE expires_at IS NULL OR expires_at > %s
 	''', (datetime.now(timezone.utc),))
 	active = cursor.fetchone()['count']
@@ -529,7 +531,7 @@ def get_blacklist_stats():
 	# Expired entries
 	cursor.execute('''
 		SELECT COUNT(*) as count 
-		FROM ip_blacklist 
+		FROM {cfg.t("ip_blacklist")} 
 		WHERE expires_at IS NOT NULL AND expires_at <= %s
 	''', (datetime.now(timezone.utc),))
 	expired = cursor.fetchone()['count']
@@ -537,7 +539,7 @@ def get_blacklist_stats():
 	# By source
 	cursor.execute('''
 		SELECT source, COUNT(*) as count
-		FROM ip_blacklist
+		FROM {cfg.t("ip_blacklist")}
 		GROUP BY source
 	''')
 	by_source = {row['source']: row['count'] for row in cursor.fetchall()}
@@ -545,7 +547,7 @@ def get_blacklist_stats():
 	# Top hit IPs
 	cursor.execute('''
 		SELECT ip_address::text, hit_count, reason
-		FROM ip_blacklist
+		FROM {cfg.t("ip_blacklist")}
 		ORDER BY hit_count DESC
 		LIMIT 10
 	''')
@@ -635,15 +637,15 @@ def list_sender_blocklist():
 	cursor.execute('''
 		SELECT sb.id, sb.email, sb.domain, sb.source, sb.blocked_at,
 		       sb.blocked_by, sb.notes, u.email as blocked_by_email
-		FROM sender_blocklist sb
-		LEFT JOIN users u ON sb.blocked_by = u.id
+		FROM {cfg.t("sender_blocklist")} sb
+		LEFT JOIN {cfg.users_t()} u ON sb.blocked_by = u.id
 		ORDER BY sb.blocked_at DESC
 		LIMIT %s OFFSET %s
 	''', (limit, offset))
 	
 	entries = cursor.fetchall()
 	
-	cursor.execute('SELECT COUNT(*) as total FROM sender_blocklist')
+	cursor.execute('SELECT COUNT(*) as total FROM {cfg.t("sender_blocklist")}')
 	total = cursor.fetchone()['total']
 	
 	cursor.close()
@@ -706,27 +708,27 @@ def add_sender_block():
 	try:
 		if email:
 			# Check if already blocked
-			cursor.execute('SELECT id FROM sender_blocklist WHERE email = %s', (email,))
+			cursor.execute('SELECT id FROM {cfg.t("sender_blocklist")} WHERE email = %s', (email,))
 			if cursor.fetchone():
 				cursor.close()
 				conn.close()
 				return jsonify({'success': True, 'message': 'Already blocked'}), 200
 			
 			cursor.execute('''
-				INSERT INTO sender_blocklist (email, domain, blocked_by, notes)
+				INSERT INTO {cfg.t("sender_blocklist")} (email, domain, blocked_by, notes)
 				VALUES (%s, %s, %s, %s)
 				RETURNING id
 			''', (email, None, user_id, notes))
 		else:
 			# Block domain
-			cursor.execute('SELECT id FROM sender_blocklist WHERE domain = %s AND email IS NULL', (domain,))
+			cursor.execute('SELECT id FROM {cfg.t("sender_blocklist")} WHERE domain = %s AND email IS NULL', (domain,))
 			if cursor.fetchone():
 				cursor.close()
 				conn.close()
 				return jsonify({'success': True, 'message': 'Already blocked'}), 200
 			
 			cursor.execute('''
-				INSERT INTO sender_blocklist (domain, blocked_by, notes)
+				INSERT INTO {cfg.t("sender_blocklist")} (domain, blocked_by, notes)
 				VALUES (%s, %s, %s)
 				RETURNING id
 			''', (domain, user_id, notes))
@@ -774,7 +776,7 @@ def remove_sender_block(block_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	cursor.execute('SELECT email, domain FROM sender_blocklist WHERE id = %s', (block_id,))
+	cursor.execute('SELECT email, domain FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
 	result = cursor.fetchone()
 	
 	if not result:
@@ -782,7 +784,7 @@ def remove_sender_block(block_id):
 		conn.close()
 		return jsonify({'error': 'Not found'}), 404
 	
-	cursor.execute('DELETE FROM sender_blocklist WHERE id = %s', (block_id,))
+	cursor.execute('DELETE FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -841,7 +843,7 @@ def check_sender_blocked_api():
 	# Check both specific email and domain
 	cursor.execute('''
 		SELECT id, email, domain, source, notes, blocked_at
-		FROM sender_blocklist
+		FROM {cfg.t("sender_blocklist")}
 		WHERE email = %s OR (domain = %s AND email IS NULL)
 		LIMIT 1
 	''', (email, domain))

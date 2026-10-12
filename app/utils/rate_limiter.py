@@ -11,6 +11,7 @@ Falls back to in-memory tracking if the database table doesn't exist
 (e.g. insufficient privileges to create it).
 """
 
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -70,7 +71,7 @@ def _prune_old_attempts(cursor, key: str, window_seconds: int):
 	"""Remove attempts older than the window."""
 	cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
 	cursor.execute(
-		'DELETE FROM rate_limit_attempts WHERE key = %s AND attempted_at < %s',
+		'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s AND attempted_at < %s',
 		(key, cutoff)
 	)
 
@@ -114,7 +115,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 		_prune_old_attempts(cursor, key, window_seconds)
 		
 		cursor.execute(
-			'SELECT COUNT(*) AS n FROM rate_limit_attempts WHERE key = %s',
+			'SELECT COUNT(*) AS n FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
 			(key,)
 		)
 		count = cursor.fetchone()['n']
@@ -123,7 +124,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 			# Log the violation
 			try:
 				cursor.execute(
-					'''INSERT INTO rate_limit_violations (client_ip, violation_type, count)
+					'''INSERT INTO {cfg.t("rate_limit_violations")} (client_ip, violation_type, count)
 					   VALUES (%s, %s, %s)''',
 					(key.split(':')[1] if ':' in key else key, 'rate_limit_exceeded', count)
 				)
@@ -158,7 +159,7 @@ def record_attempt(key: str):
 	try:
 		if _table_exists(cursor):
 			cursor.execute(
-				'INSERT INTO rate_limit_attempts (key) VALUES (%s)',
+				'INSERT INTO {cfg.t("rate_limit_attempts")} (key) VALUES (%s)',
 				(key,)
 			)
 			conn.commit()
@@ -179,7 +180,7 @@ def clear_attempts(key: str):
 	try:
 		if _table_exists(cursor):
 			cursor.execute(
-				'DELETE FROM rate_limit_attempts WHERE key = %s',
+				'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
 				(key,)
 			)
 			conn.commit()
@@ -201,7 +202,7 @@ def cleanup_old_entries(max_age_hours: int = 24):
 		if _table_exists(cursor):
 			cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
 			cursor.execute(
-				'DELETE FROM rate_limit_attempts WHERE attempted_at < %s',
+				'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE attempted_at < %s',
 				(cutoff,)
 			)
 			removed = cursor.rowcount

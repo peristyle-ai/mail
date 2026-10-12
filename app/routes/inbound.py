@@ -1,3 +1,5 @@
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 import hashlib
 import hmac
 import logging
@@ -116,7 +118,7 @@ def _get_local_domains() -> set[str]:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT domain FROM domains ORDER BY domain')
+		cursor.execute('SELECT domain FROM {cfg.t("domains")} ORDER BY domain')
 		rows = cursor.fetchall()
 		if rows:
 			return {row['domain'] for row in rows if row.get('domain')}
@@ -131,7 +133,7 @@ def _get_domain_webhook_secret_hash(domain: str) -> str:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT webhook_secret FROM domains WHERE domain = %s', (domain,))
+		cursor.execute('SELECT webhook_secret FROM {cfg.t("domains")} WHERE domain = %s', (domain,))
 		row = cursor.fetchone()
 		if not row:
 			return ''
@@ -220,7 +222,7 @@ def is_sender_blocked(sender_email: str) -> bool:
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''SELECT id FROM sender_blocklist
+			'''SELECT id FROM {cfg.t("sender_blocklist")}
 			   WHERE email = %s OR (domain = %s AND email IS NULL)
 			   LIMIT 1''',
 			(sender_email, domain)
@@ -237,7 +239,7 @@ def resolve_recipient_user(recipient_email: str):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'SELECT id, is_local FROM users WHERE email = %s',
+			'SELECT id, is_local FROM {cfg.users_t()} WHERE email = %s',
 			(recipient_email,)
 		)
 		row = cursor.fetchone()
@@ -253,7 +255,7 @@ def find_or_create_sender(sender_email: str) -> int:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT id FROM users WHERE email = %s', (sender_email,))
+		cursor.execute('SELECT id FROM {cfg.users_t()} WHERE email = %s', (sender_email,))
 		row = cursor.fetchone()
 		if row:
 			return row['id']
@@ -265,7 +267,7 @@ def find_or_create_sender(sender_email: str) -> int:
 		from ..utils.auth import hash_password as _hash_pw
 		_random_hash = _hash_pw(_secrets.token_hex(32))
 		cursor.execute(
-			'''INSERT INTO users (email, password_hash, name, is_local, created_at)
+			'''INSERT INTO {cfg.users_t()} (email, password_hash, name, is_local, created_at)
 			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
 			(sender_email, _random_hash, sender_username, False, datetime.now(timezone.utc))
 		)
@@ -281,7 +283,7 @@ def get_or_create_inbox(user_id: int) -> int:
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'SELECT id FROM folders WHERE user_id = %s AND name = %s',
+			'SELECT id FROM {cfg.t("folders")} WHERE user_id = %s AND name = %s',
 			(user_id, 'Inbox')
 		)
 		folder = cursor.fetchone()
@@ -289,7 +291,7 @@ def get_or_create_inbox(user_id: int) -> int:
 			return folder['id']
 
 		cursor.execute(
-			'INSERT INTO folders (user_id, name) VALUES (%s, %s) RETURNING id',
+			'INSERT INTO {cfg.t("folders")} (user_id, name) VALUES (%s, %s) RETURNING id',
 			(user_id, 'Inbox')
 		)
 		conn.commit()
@@ -554,7 +556,7 @@ def receive_inbound_webhook():
 		subject_normalized_value = subj_norm if subj_norm and not (mid or irt or refs) else None
 
 		cursor.execute(
-			'''INSERT INTO emails
+			'''INSERT INTO {cfg.t("emails")}
 			   (sender_id, recipient_id, folder_id, subject, body, body_html,
 			    raw_email, headers, created_at, is_read,
 			    message_id, in_reply_to, references_chain, thread_id,
@@ -570,7 +572,7 @@ def receive_inbound_webhook():
 		email_id = cursor.fetchone()['id']
 
 		cursor.execute(
-			'INSERT INTO email_recipients (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
+			'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')
 		)
 
@@ -659,7 +661,7 @@ def receive_inbound_webhook():
 					cursor.execute('SAVEPOINT att_save')
 					try:
 						cursor.execute(
-							'''INSERT INTO attachments
+							'''INSERT INTO {cfg.t("attachments")}
 							   (email_id, file_name, content_type, file_size, file_path)
 							   VALUES (%s, %s, %s, %s, %s)''',
 							(email_id, filename, content_type, file_size, file_path)
