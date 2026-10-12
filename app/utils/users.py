@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from .db import get_db_connection
-from ... import mail_config as cfg  # Phase 1b: schema-qualified table names
+from config import mail_config as cfg  # Phase 1b: schema-qualified table names
 
 
 def get_user_by_email(email):
