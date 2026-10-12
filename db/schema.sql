@@ -1,12 +1,8 @@
--- Phase 1a: SET search_path to the configured mail schema so that all subsequent
--- CREATE TABLE statements install into that schema. The default schema ('public')
--- preserves the legacy standalone-DB install behaviour; the schema-mode install
--- uses MAIL_SCHEMA=mail (or whatever the customer picks).
--- The application code is being migrated in follow-up chunks (1b/1c) to reference
--- tables via cfg.t("<table>") instead of unqualified names. For v0.3, the
--- search_path approach keeps the existing DDL byte-identical when MAIL_SCHEMA=public
--- and produces mail.<table> when MAIL_SCHEMA=mail.
-SET search_path TO mail, public;
+-- Phase 1a: The search_path is set by init_db.py before applying this file.
+-- Do NOT override it here — the configured MAIL_SCHEMA is already in effect.
+-- When MAIL_SCHEMA=public (default), the legacy standalone-DB install behaviour
+-- is preserved. When MAIL_SCHEMA=mail (or any other schema), tables install
+-- into that schema.
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -89,17 +85,17 @@ CREATE TABLE IF NOT EXISTS rate_limit_violations (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_emails_sender ON emails(sender_id);
-CREATE INDEX idx_emails_folder ON emails(folder_id);
-CREATE INDEX idx_emails_source_email_id ON emails(source_email_id);
-CREATE INDEX idx_emails_created ON emails(created_at);
-CREATE INDEX idx_recipients_user ON email_recipients(user_id);
-CREATE INDEX idx_attachments_email ON attachments(email_id);
-CREATE INDEX idx_greylist_ip ON greylist(client_ip);
-CREATE INDEX idx_greylist_whitelisted ON greylist(whitelisted);
-CREATE INDEX idx_greylist_sender ON greylist(sender);
-CREATE INDEX idx_rate_violations_ip ON rate_limit_violations(client_ip);
-CREATE INDEX idx_rate_violations_time ON rate_limit_violations(timestamp);
+CREATE INDEX IF NOT EXISTS idx_emails_sender ON emails(sender_id);
+CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder_id);
+CREATE INDEX IF NOT EXISTS idx_emails_source_email_id ON emails(source_email_id);
+CREATE INDEX IF NOT EXISTS idx_emails_created ON emails(created_at);
+CREATE INDEX IF NOT EXISTS idx_recipients_user ON email_recipients(user_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_email ON attachments(email_id);
+CREATE INDEX IF NOT EXISTS idx_greylist_ip ON greylist(client_ip);
+CREATE INDEX IF NOT EXISTS idx_greylist_whitelisted ON greylist(whitelisted);
+CREATE INDEX IF NOT EXISTS idx_greylist_sender ON greylist(sender);
+CREATE INDEX IF NOT EXISTS idx_rate_violations_ip ON rate_limit_violations(client_ip);
+CREATE INDEX IF NOT EXISTS idx_rate_violations_time ON rate_limit_violations(timestamp);
 
 -- ============================================
 -- IP Blacklist Table (Phase 1)
@@ -118,8 +114,8 @@ CREATE TABLE IF NOT EXISTS ip_blacklist (
 );
 
 -- Indexes for blacklist
-CREATE INDEX idx_ip_blacklist_address ON ip_blacklist(ip_address);
-CREATE INDEX idx_ip_blacklist_expires ON ip_blacklist(expires_at);
+CREATE INDEX IF NOT EXISTS idx_ip_blacklist_address ON ip_blacklist(ip_address);
+CREATE INDEX IF NOT EXISTS idx_ip_blacklist_expires ON ip_blacklist(expires_at);
 
 -- ============================================
 -- Sender Blocklist Table
@@ -137,8 +133,8 @@ CREATE TABLE IF NOT EXISTS sender_blocklist (
 	CONSTRAINT check_block_target CHECK (email IS NOT NULL OR domain IS NOT NULL)
 );
 
-CREATE UNIQUE INDEX idx_sender_blocklist_email ON sender_blocklist(email) WHERE email IS NOT NULL;
-CREATE UNIQUE INDEX idx_sender_blocklist_domain ON sender_blocklist(domain) WHERE email IS NULL AND domain IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sender_blocklist_email ON sender_blocklist(email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sender_blocklist_domain ON sender_blocklist(domain) WHERE email IS NULL AND domain IS NOT NULL;
 
 -- ============================================
 -- Outbound Email Delivery Tables
@@ -174,10 +170,10 @@ CREATE TABLE IF NOT EXISTS delivery_logs (
 );
 
 -- Indexes for outbound queue
-CREATE INDEX idx_outbound_status ON outbound_queue(status);
-CREATE INDEX idx_outbound_next_attempt ON outbound_queue(next_attempt);
-CREATE INDEX idx_outbound_domain ON outbound_queue(recipient_domain);
-CREATE INDEX idx_delivery_logs_email ON delivery_logs(email_id);
+CREATE INDEX IF NOT EXISTS idx_outbound_status ON outbound_queue(status);
+CREATE INDEX IF NOT EXISTS idx_outbound_next_attempt ON outbound_queue(next_attempt);
+CREATE INDEX IF NOT EXISTS idx_outbound_domain ON outbound_queue(recipient_domain);
+CREATE INDEX IF NOT EXISTS idx_delivery_logs_email ON delivery_logs(email_id);
 
 -- Per-domain outbound relay configuration
 CREATE TABLE IF NOT EXISTS domains (
@@ -199,9 +195,9 @@ CREATE TABLE IF NOT EXISTS domains (
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_domains_domain ON domains(domain);
-CREATE INDEX idx_domains_relay_provider ON domains(relay_provider);
-CREATE INDEX idx_domains_relay_verified ON domains(relay_verified);
+CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
+CREATE INDEX IF NOT EXISTS idx_domains_relay_provider ON domains(relay_provider);
+CREATE INDEX IF NOT EXISTS idx_domains_relay_verified ON domains(relay_verified);
 
 -- Major email provider domains (greylist whitelist)
 CREATE TABLE IF NOT EXISTS major_providers (
@@ -210,4 +206,4 @@ CREATE TABLE IF NOT EXISTS major_providers (
 	description VARCHAR(255),
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_delivery_logs_queue ON delivery_logs(outbound_queue_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_logs_queue ON delivery_logs(outbound_queue_id);
