@@ -1,5 +1,4 @@
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from config import mail_config as cfg  # Phase 1c: schema-qualified table names
 from flask import Blueprint, request, jsonify
 from ..db import get_db_connection
 from app.utils.auth import token_required

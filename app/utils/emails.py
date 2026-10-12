@@ -14,8 +14,9 @@ Pure helpers (no DB):
 DB-backed helpers (need a cursor passed in):
     * compute_thread_id
 """
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from __future__ import annotations
+
+from config import mail_config as cfg  # Phase 1c: schema-qualified table names
 
 import re
 import uuid

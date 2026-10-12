@@ -5,7 +5,7 @@ from functools import wraps
 from flask import request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from ..db import get_db_connection, set_current_user_id
-from ... import mail_config as cfg  # Phase 1b: schema-qualified table names
+from config import mail_config as cfg  # Phase 1b: schema-qualified table names
 
 
 def hash_password(password):

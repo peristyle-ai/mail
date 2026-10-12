@@ -11,7 +11,7 @@ Falls back to in-memory tracking if the database table doesn't exist
 (e.g. insufficient privileges to create it).
 """
 
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
+from config import mail_config as cfg  # Phase 1c: schema-qualified table names
 import logging
 import time
 from datetime import datetime, timedelta, timezone

@@ -13,9 +13,9 @@ policy in one place.  A new email in 'Inbox' (default disabled) does not
 get enqueued at all.
 """
 
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
-from .. import mail_config as cfg  # Phase 1c: schema-qualified table names
 from __future__ import annotations
+
+from config import mail_config as cfg  # Phase 1c: schema-qualified table names
 
 import logging
 from typing import Iterable, Optional, Set
