@@ -12,7 +12,7 @@ from app.utils.webhooks import hash_webhook_secret
 
 
 LOCAL_DOMAINS = [
-	'example.com.au', 'mailrelay.com', 'example.ai',
+	'example.com', 'example.com', 'example.ai',
 	'example.ai', 'example.io', 'localhost', 'example.com',
 ]
 
@@ -34,8 +34,8 @@ def local_user(db):
 	cursor.execute("DELETE FROM email_recipients")
 	cursor.execute("DELETE FROM attachments")
 	cursor.execute("DELETE FROM emails")
-	cursor.execute("DELETE FROM folders WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com.au')")
-	cursor.execute("DELETE FROM users WHERE email = 'inbound_test@example.com.au'")
+	cursor.execute("DELETE FROM folders WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')")
+	cursor.execute("DELETE FROM users WHERE email = 'inbound_test@example.com'")
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -47,7 +47,7 @@ def local_user(db):
 	cursor.execute(
 		'''INSERT INTO users (email, password_hash, name, is_local)
 		   VALUES (%s, %s, %s, %s) RETURNING id, email''',
-		('inbound_test@example.com.au', password_hash, 'Inbound Test User', True)
+		('inbound_test@example.com', password_hash, 'Inbound Test User', True)
 	)
 	user = cursor.fetchone()
 	conn.commit()
@@ -97,7 +97,7 @@ class TestInboundBasic:
 		"""Test receiving inbound email via form data"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Test Inbound',
 			'text': 'Hello from SMTP2GO'
 		})
@@ -121,7 +121,7 @@ class TestInboundBasic:
 		"""Test receiving inbound email via JSON"""
 		response = inbound_client.post('/inbound', json={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'JSON Inbound',
 			'text': 'Via JSON body',
 			'html': '<p>Via JSON</p>'
@@ -144,7 +144,7 @@ class TestInboundBasic:
 		"""Test JSON payload using 'body' instead of 'text'"""
 		response = inbound_client.post('/inbound', json={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Body Field',
 			'body': 'Using body field'
 		})
@@ -173,7 +173,7 @@ class TestInboundBasic:
 
 		response = inbound_client.post('/inbound', data={
 			'from': sender_email,
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'New Sender',
 			'text': 'Hello'
 		})
@@ -201,7 +201,7 @@ class TestInboundBasic:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Inbox Creation',
 			'text': 'Testing inbox auto-creation'
 		})
@@ -222,7 +222,7 @@ class TestInboundBasic:
 		"""Test that headers are stored with sender IP and webhook marker"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Headers Test',
 			'text': 'Testing',
 			'sender_ip': '203.0.113.5'
@@ -238,7 +238,7 @@ class TestInboundBasic:
 		conn.close()
 		headers = email['headers']
 		assert 'from: user@example.com' in headers
-		assert 'to: inbound_test@example.com.au' in headers
+		assert 'to: inbound_test@example.com' in headers
 		assert 'x-sender-ip: 203.0.113.5' in headers
 		assert 'x-received-via: inbound-webhook' in headers
 
@@ -249,7 +249,7 @@ class TestInboundValidation:
 	def test_missing_sender(self, inbound_client, local_user):
 		"""Test that missing 'from' field returns 400"""
 		response = inbound_client.post('/inbound', data={
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'No Sender',
 			'text': 'Hello'
 		})
@@ -272,7 +272,7 @@ class TestInboundValidation:
 		"""Test that invalid sender email returns 400"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'not-an-email',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Bad Sender',
 			'text': 'Hello'
 		})
@@ -296,7 +296,7 @@ class TestInboundValidation:
 		"""Test that unknown recipient on local domain returns 200 (prevents SMTP2GO retries)"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'nonexistent@example.com.au',
+			'to': 'nonexistent@example.com',
 			'subject': 'Unknown User',
 			'text': 'Hello'
 		})
@@ -343,7 +343,7 @@ class TestInboundValidation:
 		"""Test that non-string fields in JSON return 400"""
 		response = inbound_client.post('/inbound', json={
 			'from': 12345,
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Bad types',
 			'text': 'Hello'
 		})
@@ -355,7 +355,7 @@ class TestInboundValidation:
 		"""Test that CR/LF characters within header values are stripped preventing injection"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Test\r\nX-Injected: evil',
 			'text': 'Hello',
 			'sender_ip': '1.2.3.4\nX-Extra: bad'
@@ -389,7 +389,7 @@ class TestInboundSenderBlocklist:
 		"""Test that emails from blocked senders are rejected"""
 		response = inbound_client.post('/inbound', data={
 			'from': blocked_sender,
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Spam',
 			'text': 'Spam content'
 		})
@@ -401,7 +401,7 @@ class TestInboundSenderBlocklist:
 		"""Test that emails from blocked domains are rejected"""
 		response = inbound_client.post('/inbound', data={
 			'from': f'anyone@{blocked_domain}',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Domain Spam',
 			'text': 'Spam content'
 		})
@@ -413,7 +413,7 @@ class TestInboundSenderBlocklist:
 		"""Test that non-blocked senders are accepted"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Legitimate',
 			'text': 'Normal content'
 		})
@@ -436,7 +436,7 @@ class TestInboundRateLimiting:
 			for i in range(5):
 				response = inbound_client.post('/inbound', data={
 					'from': f'sender{i}@gmail.com',
-					'to': 'inbound_test@example.com.au',
+					'to': 'inbound_test@example.com',
 					'subject': f'Email {i}',
 					'text': 'Test'
 				})
@@ -444,7 +444,7 @@ class TestInboundRateLimiting:
 
 			response = inbound_client.post('/inbound', data={
 				'from': 'user@example.com',
-				'to': 'inbound_test@example.com.au',
+				'to': 'inbound_test@example.com',
 				'subject': 'Over Limit',
 				'text': 'Should be rate limited'
 			})
@@ -465,14 +465,14 @@ class TestInboundRateLimiting:
 			with inbound_client.application.test_request_context():
 				inbound_client.post('/inbound', data={
 					'from': 'user@example.com',
-					'to': 'inbound_test@example.com.au',
+					'to': 'inbound_test@example.com',
 					'subject': 'From IP1',
 					'text': 'Test'
 				}, environ_base={'REMOTE_ADDR': '10.0.0.1'})
 
 				inbound_client.post('/inbound', data={
 					'from': 'user@example.com',
-					'to': 'inbound_test@example.com.au',
+					'to': 'inbound_test@example.com',
 					'subject': 'From IP2',
 					'text': 'Test'
 				}, environ_base={'REMOTE_ADDR': '10.0.0.2'})
@@ -493,7 +493,7 @@ class TestInboundSMTP2GOSignature:
 		try:
 			response = inbound_client.post('/inbound', data={
 				'from': 'user@example.com',
-				'to': 'inbound_test@example.com.au',
+				'to': 'inbound_test@example.com',
 				'subject': 'No Secret',
 				'text': 'Hello'
 			})
@@ -514,7 +514,7 @@ class TestInboundDomainWebhookSecret:
 			   SET webhook_secret = %s,
 			       webhook_secret_updated_at = NOW()
 			   WHERE domain = %s''',
-			(hash_webhook_secret('domain-secret-123456'), 'example.com.au')
+			(hash_webhook_secret('domain-secret-123456'), 'example.com')
 		)
 		conn.commit()
 		cursor.close()
@@ -522,7 +522,7 @@ class TestInboundDomainWebhookSecret:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Domain Secret',
 			'text': 'Hello'
 		}, headers={'X-Webhook-Secret': 'domain-secret-123456'})
@@ -538,7 +538,7 @@ class TestInboundDomainWebhookSecret:
 			   SET webhook_secret = %s,
 			       webhook_secret_updated_at = NOW()
 			   WHERE domain = %s''',
-			(hash_webhook_secret('domain-secret-123456'), 'example.com.au')
+			(hash_webhook_secret('domain-secret-123456'), 'example.com')
 		)
 		conn.commit()
 		cursor.close()
@@ -546,7 +546,7 @@ class TestInboundDomainWebhookSecret:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Bad Domain Secret',
 			'text': 'Hello'
 		}, headers={'X-Webhook-Secret': 'wrong-secret'})
@@ -575,7 +575,7 @@ class TestInboundDomainWebhookSecret:
 				'/inbound',
 				data={
 					'from': 'user@example.com',
-					'to': 'inbound_test@example.com.au',
+					'to': 'inbound_test@example.com',
 					'subject': 'Signed',
 					'text': 'Hello'
 				},
@@ -596,7 +596,7 @@ class TestInboundDomainWebhookSecret:
 		try:
 			response = inbound_client.post('/inbound', data={
 				'from': 'user@example.com',
-				'to': 'inbound_test@example.com.au',
+				'to': 'inbound_test@example.com',
 				'subject': 'Bad Sig',
 				'text': 'Hello'
 			}, headers={'X-SMTP2GO-Signature': 'invalid_signature_here'})
@@ -615,7 +615,7 @@ class TestInboundDomainWebhookSecret:
 		try:
 			response = inbound_client.post('/inbound', data={
 				'from': 'user@example.com',
-				'to': 'inbound_test@example.com.au',
+				'to': 'inbound_test@example.com',
 				'subject': 'No Sig',
 				'text': 'Hello'
 			})
@@ -660,7 +660,7 @@ class TestInboundMultipart:
 		"""Test that multipart/form-data is accepted"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Multipart Test',
 			'text': 'From multipart form'
 		}, content_type='multipart/form-data')
@@ -672,7 +672,7 @@ class TestInboundMultipart:
 		"""Test that application/x-www-form-urlencoded is accepted"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'URLEncoded Test',
 			'text': 'From urlencoded'
 		}, content_type='application/x-www-form-urlencoded')
@@ -688,7 +688,7 @@ class TestInboundStringSanitization:
 		"""Test that null bytes are removed from stored content"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Null\x00Bytes',
 			'text': 'Body with\x00nulls'
 		})
@@ -709,7 +709,7 @@ class TestInboundStringSanitization:
 		long_subject = 'A' * 600
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': long_subject,
 			'text': 'Long subject test'
 		})
@@ -756,7 +756,7 @@ class TestInboundMIMEExtraction:
 
 	MIME_PLAIN_ONLY = (
 		'From: user@example.com\r\n'
-		'To: inbound_test@example.com.au\r\n'
+		'To: inbound_test@example.com\r\n'
 		'Subject: MIME Test\r\n'
 		'Content-Type: text/plain; charset=utf-8\r\n'
 		'MIME-Version: 1.0\r\n'
@@ -766,7 +766,7 @@ class TestInboundMIMEExtraction:
 
 	MIME_HTML_AND_PLAIN = (
 		'From: user@example.com\r\n'
-		'To: inbound_test@example.com.au\r\n'
+		'To: inbound_test@example.com\r\n'
 		'Subject: MIME HTML Test\r\n'
 		'MIME-Version: 1.0\r\n'
 		'Content-Type: multipart/alternative; boundary="boundary123"\r\n'
@@ -786,7 +786,7 @@ class TestInboundMIMEExtraction:
 		"""Test that plain text body is extracted from raw MIME when text field is empty"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'MIME Plain Test',
 			'text': '',
 			'html': '',
@@ -808,7 +808,7 @@ class TestInboundMIMEExtraction:
 		"""Test that both text and HTML are extracted from multipart MIME"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'MIME HTML Test',
 			'text': '',
 			'html': '',
@@ -830,7 +830,7 @@ class TestInboundMIMEExtraction:
 		"""Test that explicit text field takes priority over MIME extraction"""
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Priority Test',
 			'text': 'Explicit text field',
 			'mail': self.MIME_PLAIN_ONLY
@@ -850,7 +850,7 @@ class TestInboundMIMEExtraction:
 		"""Test that SMTP2GO event webhook field names are accepted as fallbacks"""
 		response = inbound_client.post('/inbound', data={
 			'from_address': 'user@example.com',
-			'rcpt': 'inbound_test@example.com.au',
+			'rcpt': 'inbound_test@example.com',
 			'subject': 'SMTP2GO Event',
 			'text': 'From event webhook'
 		})
@@ -871,7 +871,7 @@ class TestInboundMIMEExtraction:
 
 		mime = (
 			'From: user@example.com\r\n'
-			'To: inbound_test@example.com.au\r\n'
+			'To: inbound_test@example.com\r\n'
 			'Subject: Base64 Test\r\n'
 			'MIME-Version: 1.0\r\n'
 			'Content-Type: text/plain; charset=utf-8\r\n'
@@ -882,7 +882,7 @@ class TestInboundMIMEExtraction:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Base64 Test',
 			'raw_email': b64_mime
 		})
@@ -904,7 +904,7 @@ class TestInboundMIMEExtraction:
 
 		mime = (
 			'From: user@example.com\r\n'
-			'To: inbound_test@example.com.au\r\n'
+			'To: inbound_test@example.com\r\n'
 			'Subject: B64 Multipart\r\n'
 			'MIME-Version: 1.0\r\n'
 			'Content-Type: multipart/alternative; boundary="b64test"\r\n'
@@ -923,7 +923,7 @@ class TestInboundMIMEExtraction:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'B64 Multipart',
 			'raw_email': b64_mime
 		})
@@ -967,7 +967,7 @@ class TestInboundPayloadLimits:
 		big_body = 'X' * (600 * 1024)
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Large Body Test',
 			'text': big_body
 		})
@@ -991,7 +991,7 @@ class TestInboundPayloadLimits:
 		big_body = 'A' * (600 * 1024)
 		mime = (
 			'From: user@example.com\r\n'
-			'To: inbound_test@example.com.au\r\n'
+			'To: inbound_test@example.com\r\n'
 			'Subject: Large B64 Test\r\n'
 			'Content-Type: text/plain; charset=utf-8\r\n'
 			'MIME-Version: 1.0\r\n'
@@ -1003,7 +1003,7 @@ class TestInboundPayloadLimits:
 
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Large B64 Test',
 			'raw_email': b64_mime
 		})
@@ -1016,7 +1016,7 @@ class TestInboundPayloadLimits:
 		big_data = 'Y' * (51 * 1024 * 1024)
 		response = inbound_client.post('/inbound', data={
 			'from': 'user@example.com',
-			'to': 'inbound_test@example.com.au',
+			'to': 'inbound_test@example.com',
 			'subject': 'Too Big',
 			'text': big_data
 		})
