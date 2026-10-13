@@ -30,6 +30,16 @@ def get_db_connection(user_id=None):
 	"""
 	conn = psycopg2.connect(os.getenv('DATABASE_URL'), cursor_factory=RealDictCursor)
 	
+	# Set search_path to the mail schema so unqualified table names (which
+	# the mail code uses extensively in the smtp_server/ module) resolve
+	# correctly. The app/ module mostly uses cfg.t() to fully-qualify;
+	# this is the safety net for the rest. The public schema is kept
+	# in the search_path so any cross-schema joins still work.
+	cursor = conn.cursor()
+	mail_schema = os.getenv('MAIL_SCHEMA', 'public')
+	cursor.execute(f"SET search_path TO {mail_schema}, public")
+	cursor.close()
+	
 	# Set RLS user context if available
 	effective_user_id = user_id or get_current_user_id()
 	if effective_user_id is not None:
