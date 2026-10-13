@@ -40,9 +40,14 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 console_handler.setLevel(logging.INFO)
 
-# File handler with rotation (10MB per file, keep 5 backups)
+# File handler with rotation (10MB per file, keep 5 backups).
+# Path is configurable via MAIL_LOG_PATH env var (default
+# /tmp/mail_server.log matches the legacy hardcode). For multi-user
+# hosts or per-customer mirrors, set this to a path the running user
+# can write to, e.g. /home/<user>/<instance>/logs/mail_server.log
+log_path = os.environ.get('MAIL_LOG_PATH', '/tmp/mail_server.log')
 file_handler = RotatingFileHandler(
-    '/tmp/mail_server.log',
+    log_path,
     maxBytes=10*1024*1024,  # 10MB
     backupCount=5
 )
