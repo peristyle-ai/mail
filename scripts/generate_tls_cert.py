@@ -14,6 +14,7 @@ The certificate will be saved to certs/server.crt and certs/server.key.
 
 import sys
 import os
+import ipaddress
 from pathlib import Path
 
 # Project root
@@ -86,7 +87,7 @@ def generate_self_signed_cert(hostname='localhost', cert_dir=None):
                 x509.DNSName(hostname),
                 x509.DNSName(f'*.{hostname}'),
                 x509.DNSName('localhost'),
-                x509.DNSName('127.0.0.1'),
+                x509.IPAddress(ipaddress.IPv4Address('127.0.0.1')),
             ]),
             critical=False
         ).sign(key, hashes.SHA256())
