@@ -385,7 +385,7 @@ def create_email():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 
-	cursor.execute('SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
+	cursor.execute(f'SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
 	sender_row = cursor.fetchone()
 	if not sender_row:
 		cursor.close()
@@ -445,7 +445,7 @@ def create_email():
 	if folder_id:
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s', (folder_id, request.current_user['id']))
+		c.execute(f'SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s', (folder_id, request.current_user['id']))
 		folder_row = c.fetchone()
 		c.close()
 		conn.close()
@@ -520,7 +520,7 @@ def create_email():
 		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
+		c.execute(f'SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
 		row = c.fetchone()
 		c.close()
 		conn.close()
@@ -617,7 +617,7 @@ def create_mime_email():
 		# Get sender's email from current user
 		conn = get_db_connection()
 		cursor = conn.cursor()
-		cursor.execute('SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
+		cursor.execute(f'SELECT email FROM {cfg.users_t()} WHERE id = %s', (request.current_user['id'],))
 		sender_row = cursor.fetchone()
 		if not sender_row:
 			cursor.close()
@@ -797,7 +797,7 @@ def create_mime_email():
 		stored_message_id = msg.get('Message-ID', '').strip().lstrip('<').rstrip('>') or None
 		conn = get_db_connection()
 		c = conn.cursor()
-		c.execute('SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
+		c.execute(f'SELECT thread_id FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
 		row = c.fetchone()
 		c.close()
 		conn.close()
@@ -845,7 +845,7 @@ def mark_as_read(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE {cfg.t("emails")} SET is_read = TRUE FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute(f'UPDATE {cfg.t("emails")} SET is_read = TRUE FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -882,12 +882,12 @@ def toggle_starred(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT e.is_starred FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute(f'SELECT e.is_starred FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	email = cursor.fetchone()
 	if not email:
 		return jsonify({'error': 'Email not found'}), 404
 	new_state = not email['is_starred']
-	cursor.execute('UPDATE {cfg.t("emails")} SET is_starred = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (new_state, email_id, request.current_user['id']))
+	cursor.execute(f'UPDATE {cfg.t("emails")} SET is_starred = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (new_state, email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -922,7 +922,7 @@ def delete_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('DELETE FROM {cfg.t("emails")} USING folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
+	cursor.execute(f'DELETE FROM {cfg.t("emails")} USING folders f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -968,7 +968,7 @@ def move_email(email_id):
 	data = request.get_json()
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('UPDATE {cfg.t("emails")} SET folder_id = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (data['folder_id'], email_id, request.current_user['id']))
+	cursor.execute(f'UPDATE {cfg.t("emails")} SET folder_id = %s FROM {cfg.t("folders")} f WHERE emails.folder_id = f.id AND emails.id = %s AND f.user_id = %s', (data['folder_id'], email_id, request.current_user['id']))
 	conn.commit()
 	cursor.close()
 	conn.close()
