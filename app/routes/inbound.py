@@ -221,7 +221,7 @@ def is_sender_blocked(sender_email: str) -> bool:
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''SELECT id FROM {cfg.t("sender_blocklist")}
+			f'''SELECT id FROM {cfg.t("sender_blocklist")}
 			   WHERE email = %s OR (domain = %s AND email IS NULL)
 			   LIMIT 1''',
 			(sender_email, domain)
@@ -555,7 +555,7 @@ def receive_inbound_webhook():
 		subject_normalized_value = subj_norm if subj_norm and not (mid or irt or refs) else None
 
 		cursor.execute(
-			'''INSERT INTO {cfg.t("emails")}
+			f'''INSERT INTO {cfg.t("emails")}
 			   (sender_id, recipient_id, folder_id, subject, body, body_html,
 			    raw_email, headers, created_at, is_read,
 			    message_id, in_reply_to, references_chain, thread_id,
@@ -660,7 +660,7 @@ def receive_inbound_webhook():
 					cursor.execute('SAVEPOINT att_save')
 					try:
 						cursor.execute(
-							'''INSERT INTO {cfg.t("attachments")}
+							f'''INSERT INTO {cfg.t("attachments")}
 							   (email_id, file_name, content_type, file_size, file_path)
 							   VALUES (%s, %s, %s, %s, %s)''',
 							(email_id, filename, content_type, file_size, file_path)

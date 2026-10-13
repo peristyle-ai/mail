@@ -65,7 +65,7 @@ def list_domains():
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''SELECT id, domain, relay_provider, relay_host, relay_port,
+			f'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
@@ -107,7 +107,7 @@ def get_domain(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''SELECT id, domain, relay_provider, relay_host, relay_port,
+			f'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
@@ -176,7 +176,7 @@ def set_domain_relay(domain):
 		# Encrypt the relay password before storing
 		encrypted_password = encrypt_field(password)
 		cursor.execute(
-			'''INSERT INTO {cfg.t("domains")} (
+			f'''INSERT INTO {cfg.t("domains")} (
 			   domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, updated_at
@@ -238,7 +238,7 @@ def verify_domain_relay(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''SELECT id, domain, relay_provider, relay_host, relay_port,
+			f'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
@@ -263,7 +263,7 @@ def verify_domain_relay(domain):
 			return jsonify({'success': False, 'error': message}), 400
 
 		cursor.execute(
-			'''UPDATE {cfg.t("domains")}
+			f'''UPDATE {cfg.t("domains")}
 			   SET relay_verified = TRUE,
 			       relay_verified_at = CURRENT_TIMESTAMP,
 			       updated_at = CURRENT_TIMESTAMP
@@ -273,7 +273,7 @@ def verify_domain_relay(domain):
 		conn.commit()
 
 		cursor.execute(
-			'''SELECT id, domain, relay_provider, relay_host, relay_port,
+			f'''SELECT id, domain, relay_provider, relay_host, relay_port,
 			   relay_username, relay_password_encrypted, relay_from_address,
 			   relay_verified, relay_verified_at, webhook_secret, webhook_secret_updated_at,
 			   spf_verified, dkim_verified,
@@ -319,7 +319,7 @@ def delete_domain_relay(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''UPDATE {cfg.t("domains")}
+			f'''UPDATE {cfg.t("domains")}
 			   SET relay_provider = NULL,
 			       relay_host = NULL,
 			       relay_port = 2525,
@@ -384,7 +384,7 @@ def set_domain_webhook_secret(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			f'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
 			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 			   ON CONFLICT (domain) DO UPDATE SET
 			   webhook_secret = EXCLUDED.webhook_secret,
@@ -438,7 +438,7 @@ def rotate_domain_webhook_secret(domain):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
+			f'''INSERT INTO {cfg.t("domains")} (domain, webhook_secret, webhook_secret_updated_at, updated_at)
 			   VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 			   ON CONFLICT (domain) DO UPDATE SET
 			   webhook_secret = EXCLUDED.webhook_secret,

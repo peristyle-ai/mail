@@ -238,7 +238,7 @@ def add_ip_to_blacklist():
 				return jsonify({'error': 'Invalid expires_at format. Use ISO 8601 format.'}), 400
 		
 		# Insert into {cfg.t("blacklist")}
-		cursor.execute('''
+		cursor.execute(f'''
 			INSERT INTO {cfg.t("ip_blacklist")} (ip_address, reason, source, expires_at, created_by)
 			VALUES (%s::inet, %s, %s, %s, %s)
 			ON CONFLICT (ip_address) DO UPDATE SET
@@ -447,7 +447,7 @@ def check_ip_blacklisted(ip_address):
 	cursor = conn.cursor()
 	
 	# Check if IP is blacklisted (and not expired)
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT id, ip_address::text, reason, source, expires_at, hit_count, created_at
 		FROM {cfg.t("ip_blacklist")}
 		WHERE ip_address = %s::inet
@@ -520,7 +520,7 @@ def get_blacklist_stats():
 	total = cursor.fetchone()['count']
 	
 	# Active entries (not expired)
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT COUNT(*) as count 
 		FROM {cfg.t("ip_blacklist")} 
 		WHERE expires_at IS NULL OR expires_at > %s
@@ -528,7 +528,7 @@ def get_blacklist_stats():
 	active = cursor.fetchone()['count']
 	
 	# Expired entries
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT COUNT(*) as count 
 		FROM {cfg.t("ip_blacklist")} 
 		WHERE expires_at IS NOT NULL AND expires_at <= %s
@@ -536,7 +536,7 @@ def get_blacklist_stats():
 	expired = cursor.fetchone()['count']
 	
 	# By source
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT source, COUNT(*) as count
 		FROM {cfg.t("ip_blacklist")}
 		GROUP BY source
@@ -544,7 +544,7 @@ def get_blacklist_stats():
 	by_source = {row['source']: row['count'] for row in cursor.fetchall()}
 	
 	# Top hit IPs
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT ip_address::text, hit_count, reason
 		FROM {cfg.t("ip_blacklist")}
 		ORDER BY hit_count DESC
@@ -633,7 +633,7 @@ def list_sender_blocklist():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT sb.id, sb.email, sb.domain, sb.source, sb.blocked_at,
 		       sb.blocked_by, sb.notes, u.email as blocked_by_email
 		FROM {cfg.t("sender_blocklist")} sb
@@ -713,7 +713,7 @@ def add_sender_block():
 				conn.close()
 				return jsonify({'success': True, 'message': 'Already blocked'}), 200
 			
-			cursor.execute('''
+			cursor.execute(f'''
 				INSERT INTO {cfg.t("sender_blocklist")} (email, domain, blocked_by, notes)
 				VALUES (%s, %s, %s, %s)
 				RETURNING id
@@ -726,7 +726,7 @@ def add_sender_block():
 				conn.close()
 				return jsonify({'success': True, 'message': 'Already blocked'}), 200
 			
-			cursor.execute('''
+			cursor.execute(f'''
 				INSERT INTO {cfg.t("sender_blocklist")} (domain, blocked_by, notes)
 				VALUES (%s, %s, %s)
 				RETURNING id
@@ -840,7 +840,7 @@ def check_sender_blocked_api():
 	cursor = conn.cursor()
 	
 	# Check both specific email and domain
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT id, email, domain, source, notes, blocked_at
 		FROM {cfg.t("sender_blocklist")}
 		WHERE email = %s OR (domain = %s AND email IS NULL)

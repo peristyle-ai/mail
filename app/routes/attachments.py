@@ -117,13 +117,13 @@ def insert_attachment_record(cursor, email_id, owner_user_id, file_name, content
 	"""Insert an attachment row for either current or legacy schemas."""
 	if attachments_has_user_id(cursor):
 		cursor.execute(
-			'''INSERT INTO {cfg.t("attachments")} (email_id, user_id, file_name, content_type, file_size, file_path)
+			f'''INSERT INTO {cfg.t("attachments")} (email_id, user_id, file_name, content_type, file_size, file_path)
 			   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
 			(email_id, owner_user_id, file_name, content_type, file_size, file_path)
 		)
 	else:
 		cursor.execute(
-			'''INSERT INTO {cfg.t("attachments")} (email_id, file_name, content_type, file_size, file_path)
+			f'''INSERT INTO {cfg.t("attachments")} (email_id, file_name, content_type, file_size, file_path)
 			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
 			(email_id, file_name, content_type, file_size, file_path)
 		)
@@ -186,7 +186,7 @@ def upload_attachment(email_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	cursor.execute(
-		'''SELECT e.id, f.name AS folder_name
+		f'''SELECT e.id, f.name AS folder_name
 		          , f.user_id AS owner_user_id
 		   FROM {cfg.t("emails")} e
 		   JOIN {cfg.t("folders")} f ON e.folder_id = f.id
@@ -324,7 +324,7 @@ def download_attachment(attachment_id):
 	cursor = conn.cursor()
 	
 	cursor.execute(
-		'''SELECT a.id, a.file_path, a.file_name, a.content_type, a.email_id FROM {cfg.t("attachments")} a
+		f'''SELECT a.id, a.file_path, a.file_name, a.content_type, a.email_id FROM {cfg.t("attachments")} a
 		   JOIN {cfg.t("emails")} e ON a.email_id = e.id
 		   JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 		   WHERE a.id = %s AND f.user_id = %s''',
@@ -417,7 +417,7 @@ def delete_attachment_route(attachment_id):
 	cursor = conn.cursor()
 	
 	cursor.execute(
-		'''SELECT a.file_path FROM {cfg.t("attachments")} a
+		f'''SELECT a.file_path FROM {cfg.t("attachments")} a
 		   JOIN {cfg.t("emails")} e ON a.email_id = e.id
 		   JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 		   WHERE a.id = %s AND f.user_id = %s''',

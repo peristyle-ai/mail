@@ -23,7 +23,7 @@ def _hydrate_emails(email_ids):
 	cursor = conn.cursor()
 	# Use ANY(%s) for the IN clause.
 	cursor.execute(
-		'''SELECT e.*, f.name AS folder_name, f.user_id AS folder_user_id
+		f'''SELECT e.*, f.name AS folder_name, f.user_id AS folder_user_id
 		   FROM {cfg.t("emails")} e
 		   LEFT JOIN {cfg.t("folders")} f ON f.id = e.folder_id
 		   WHERE e.id = ANY(%s)''',
@@ -135,7 +135,7 @@ def search_emails():
 		conn = get_db_connection()
 		cursor = conn.cursor()
 		params = [user_id]
-		sql = '''SELECT e.id, e.subject, e.body, e.body_html, e.headers,
+		sql = f'''SELECT e.id, e.subject, e.body, e.body_html, e.headers,
 		               e.created_at, e.is_read, e.is_starred, e.folder_id,
 		               e.sender_id, e.recipient_id, e.source_email_id,
 		               e.message_id, e.in_reply_to, e.references_chain,

@@ -171,7 +171,7 @@ def list_emails():
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	if folder_name and thread_id:
-		cursor.execute('''
+		cursor.execute(f'''
 			SELECT e.*,
 			       s.email as sender_email,
 			       r.email as recipient_email,
@@ -184,7 +184,7 @@ def list_emails():
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], folder_name, thread_id))
 	elif folder_name:
-		cursor.execute('''
+		cursor.execute(f'''
 			SELECT e.*,
 			       s.email as sender_email,
 			       r.email as recipient_email,
@@ -197,7 +197,7 @@ def list_emails():
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], folder_name))
 	elif thread_id:
-		cursor.execute('''
+		cursor.execute(f'''
 			SELECT e.*,
 			       s.email as sender_email,
 			       r.email as recipient_email,
@@ -210,7 +210,7 @@ def list_emails():
 			ORDER BY e.created_at DESC
 		''', (request.current_user['id'], thread_id))
 	else:
-		cursor.execute('''
+		cursor.execute(f'''
 			SELECT e.*,
 			       s.email as sender_email,
 			       r.email as recipient_email,
@@ -255,7 +255,7 @@ def get_email(email_id):
 	"""
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('''
+	cursor.execute(f'''
 		SELECT e.*, 
 		       s.email as sender_email, 
 		       r.email as recipient_email,
@@ -485,7 +485,7 @@ def create_email():
 			headers_str = '\n'.join(f"{k}: {v}" for k, v in msg.items())
 			
 			cursor.execute(
-				'''INSERT INTO {cfg.t("emails")}
+				f'''INSERT INTO {cfg.t("emails")}
 				   (sender_id, recipient_id, folder_id, subject, body, body_html, raw_email, headers, created_at, is_read,
 				    message_id, in_reply_to, references_chain, thread_id, subject_normalized)
 				   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -776,7 +776,7 @@ def create_mime_email():
 			cursor = conn.cursor()
 			try:
 				cursor.execute(
-					'''INSERT INTO {cfg.t("attachments")} (email_id, file_name, content_type, file_size, file_path, created_at)
+					f'''INSERT INTO {cfg.t("attachments")} (email_id, file_name, content_type, file_size, file_path, created_at)
 					   VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id''',
 					(email_id, clean_filename, content_type, file_size, file_path)
 				)
@@ -1070,7 +1070,7 @@ def get_delivery_status(email_id):
 	
 	# Get queue entries for this email
 	cursor.execute(
-		'''SELECT id, recipient_email, status, attempt_count, 
+		f'''SELECT id, recipient_email, status, attempt_count, 
 		   last_attempt, delivered_at, error_message
 		   FROM {cfg.t("outbound_queue")}
 		   WHERE email_id = %s''',
@@ -1102,7 +1102,7 @@ def get_delivery_status(email_id):
 	
 	# Get delivery logs
 	cursor.execute(
-		'''SELECT event_type, smtp_response, error_message, 
+		f'''SELECT event_type, smtp_response, error_message, 
 		   remote_server, created_at
 		   FROM {cfg.t("delivery_logs")}
 		   WHERE email_id = %s
