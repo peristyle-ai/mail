@@ -6,7 +6,7 @@ Wraps `POST /v1/embeddings` on the text-embeddings-router running on
 
     * dimension override    — we request 1024-dim Matryoshka vectors so the
                               pgvector halfvec column doesn't blow past the
-                              3000-dim HNSW ceiling (MEMORY.md 2026-08-16)
+                              3000-dim HNSW ceiling
     * batching              — up to MAX_BATCH texts per request; the GPU
                               server caps at max-client-batch-size=32 with
                               max-batch-tokens=8192

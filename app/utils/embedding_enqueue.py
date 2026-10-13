@@ -92,8 +92,7 @@ def enqueue_embedding_job(email_id: int, folder_id: Optional[int] = None,
         3. Mark the job done
 
     Subject embedding happens even when the folder isn't configured for
-    body chunking — per Mal's direction (2026-09-06): "make consistent
-    with the new embedding process".
+    body chunking.
     """
     folder_name = _resolve_folder_name(folder_id, user_id)
     enabled_folders = _load_enabled_folder_names()
