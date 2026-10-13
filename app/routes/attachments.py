@@ -304,7 +304,7 @@ def list_attachments(email_id):
 		conn.close()
 		return jsonify({'error': 'Email not found or unauthorized'}), 404
 	
-	cursor.execute('SELECT id, email_id, file_name, content_type, file_size FROM {cfg.t("attachments")} WHERE email_id = %s', (email_id,))
+	cursor.execute(f'SELECT id, email_id, file_name, content_type, file_size FROM {cfg.t("attachments")} WHERE email_id = %s', (email_id,))
 	attachments = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -348,7 +348,7 @@ def download_attachment(attachment_id):
 		return send_file(file_path, as_attachment=True, download_name=file_name)
 	
 	# Legacy: extract attachment from raw_email if file_path is missing
-	cursor.execute('SELECT raw_email FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
+	cursor.execute(f'SELECT raw_email FROM {cfg.t("emails")} WHERE id = %s', (email_id,))
 	email_row = cursor.fetchone()
 	cursor.close()
 	conn.close()
@@ -431,9 +431,9 @@ def delete_attachment_route(attachment_id):
 		return jsonify({'error': 'Attachment not found'}), 404
 	
 	file_path = attachment['file_path']
-	cursor.execute('DELETE FROM {cfg.t("attachments")} WHERE id = %s', (attachment_id,))
+	cursor.execute(f'DELETE FROM {cfg.t("attachments")} WHERE id = %s', (attachment_id,))
 	if file_path:
-		cursor.execute('SELECT COUNT(*) AS count FROM {cfg.t("attachments")} WHERE file_path = %s AND id != %s', (file_path, attachment_id))
+		cursor.execute(f'SELECT COUNT(*) AS count FROM {cfg.t("attachments")} WHERE file_path = %s AND id != %s', (file_path, attachment_id))
 		other_refs = cursor.fetchone()['count']
 		if other_refs == 0 and os.path.exists(file_path):
 			os.remove(file_path)

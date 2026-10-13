@@ -42,7 +42,7 @@ def get_email_attachments(email_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT * FROM {cfg.t("attachments")} WHERE email_id = %s', (email_id,))
+    cursor.execute(f'SELECT * FROM {cfg.t("attachments")} WHERE email_id = %s', (email_id,))
     attachments = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -53,7 +53,7 @@ def delete_attachment(attachment_id, user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
+    cursor.execute(f'SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
     attachment = cursor.fetchone()
     
     if not attachment:
@@ -63,7 +63,7 @@ def delete_attachment(attachment_id, user_id):
     if os.path.exists(file_path):
         os.remove(file_path)
     
-    cursor.execute('DELETE FROM {cfg.t("attachments")} WHERE id = %s', (attachment_id,))
+    cursor.execute(f'DELETE FROM {cfg.t("attachments")} WHERE id = %s', (attachment_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -74,7 +74,7 @@ def get_attachment_path(attachment_id, user_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
+    cursor.execute(f'SELECT file_path FROM {cfg.t("attachments")} WHERE id = %s AND user_id = %s', (attachment_id, user_id))
     attachment = cursor.fetchone()
     cursor.close()
     conn.close()

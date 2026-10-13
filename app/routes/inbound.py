@@ -117,7 +117,7 @@ def _get_local_domains() -> set[str]:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT domain FROM {cfg.t("domains")} ORDER BY domain')
+		cursor.execute(f'SELECT domain FROM {cfg.t("domains")} ORDER BY domain')
 		rows = cursor.fetchall()
 		if rows:
 			return {row['domain'] for row in rows if row.get('domain')}
@@ -132,7 +132,7 @@ def _get_domain_webhook_secret_hash(domain: str) -> str:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT webhook_secret FROM {cfg.t("domains")} WHERE domain = %s', (domain,))
+		cursor.execute(f'SELECT webhook_secret FROM {cfg.t("domains")} WHERE domain = %s', (domain,))
 		row = cursor.fetchone()
 		if not row:
 			return ''
@@ -254,7 +254,7 @@ def find_or_create_sender(sender_email: str) -> int:
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	try:
-		cursor.execute('SELECT id FROM {cfg.users_t()} WHERE email = %s', (sender_email,))
+		cursor.execute(f'SELECT id FROM {cfg.users_t()} WHERE email = %s', (sender_email,))
 		row = cursor.fetchone()
 		if row:
 			return row['id']

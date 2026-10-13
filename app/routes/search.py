@@ -156,7 +156,7 @@ def search_emails():
 		params.extend([limit, (page - 1) * limit])
 		cursor.execute(sql, params)
 		emails = cursor.fetchall()
-		cursor.execute('SELECT COUNT(*) AS n FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE f.user_id = %s', [user_id])
+		cursor.execute(f'SELECT COUNT(*) AS n FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE f.user_id = %s', [user_id])
 		total = cursor.fetchone()['n']
 		cursor.close()
 		conn.close()

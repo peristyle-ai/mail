@@ -5,7 +5,7 @@ from .db import get_db_connection
 def get_folders(user_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM {cfg.t("folders")} WHERE user_id = %s ORDER BY name', (user_id,))
+	cursor.execute(f'SELECT * FROM {cfg.t("folders")} WHERE user_id = %s ORDER BY name', (user_id,))
 	folders = cursor.fetchall()
 	cursor.close()
 	conn.close()
@@ -14,7 +14,7 @@ def get_folders(user_id):
 def get_folder_by_name(user_id, name):
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('SELECT * FROM {cfg.t("folders")} WHERE user_id = %s AND name = %s', (user_id, name))
+	cursor.execute(f'SELECT * FROM {cfg.t("folders")} WHERE user_id = %s AND name = %s', (user_id, name))
 	folder = cursor.fetchone()
 	cursor.close()
 	conn.close()
@@ -23,7 +23,7 @@ def get_folder_by_name(user_id, name):
 def create_folder(user_id, name, parent_id=None):
 	conn = get_db_connection()
 	cursor = conn.cursor()
-	cursor.execute('INSERT INTO {cfg.t("folders")} (user_id, name, parent_id) VALUES (%s, %s, %s) RETURNING id', (user_id, name, parent_id))
+	cursor.execute(f'INSERT INTO {cfg.t("folders")} (user_id, name, parent_id) VALUES (%s, %s, %s) RETURNING id', (user_id, name, parent_id))
 	folder_id = cursor.fetchone()['id']
 	conn.commit()
 	cursor.close()

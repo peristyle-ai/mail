@@ -324,7 +324,7 @@ def remove_blacklisted_ip(entry_id):
 	ip_address = normalize_ip(result['ip_address'])
 	
 	# Delete the entry
-	cursor.execute('DELETE FROM {cfg.t("ip_blacklist")} WHERE id = %s', (entry_id,))
+	cursor.execute(f'DELETE FROM {cfg.t("ip_blacklist")} WHERE id = %s', (entry_id,))
 	conn.commit()
 	cursor.close()
 	conn.close()
@@ -516,7 +516,7 @@ def get_blacklist_stats():
 	cursor = conn.cursor()
 	
 	# Total entries
-	cursor.execute('SELECT COUNT(*) as count FROM {cfg.t("ip_blacklist")}')
+	cursor.execute(f'SELECT COUNT(*) as count FROM {cfg.t("ip_blacklist")}')
 	total = cursor.fetchone()['count']
 	
 	# Active entries (not expired)
@@ -644,7 +644,7 @@ def list_sender_blocklist():
 	
 	entries = cursor.fetchall()
 	
-	cursor.execute('SELECT COUNT(*) as total FROM {cfg.t("sender_blocklist")}')
+	cursor.execute(f'SELECT COUNT(*) as total FROM {cfg.t("sender_blocklist")}')
 	total = cursor.fetchone()['total']
 	
 	cursor.close()
@@ -707,7 +707,7 @@ def add_sender_block():
 	try:
 		if email:
 			# Check if already blocked
-			cursor.execute('SELECT id FROM {cfg.t("sender_blocklist")} WHERE email = %s', (email,))
+			cursor.execute(f'SELECT id FROM {cfg.t("sender_blocklist")} WHERE email = %s', (email,))
 			if cursor.fetchone():
 				cursor.close()
 				conn.close()
@@ -720,7 +720,7 @@ def add_sender_block():
 			''', (email, None, user_id, notes))
 		else:
 			# Block domain
-			cursor.execute('SELECT id FROM {cfg.t("sender_blocklist")} WHERE domain = %s AND email IS NULL', (domain,))
+			cursor.execute(f'SELECT id FROM {cfg.t("sender_blocklist")} WHERE domain = %s AND email IS NULL', (domain,))
 			if cursor.fetchone():
 				cursor.close()
 				conn.close()
@@ -775,7 +775,7 @@ def remove_sender_block(block_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	
-	cursor.execute('SELECT email, domain FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
+	cursor.execute(f'SELECT email, domain FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
 	result = cursor.fetchone()
 	
 	if not result:
@@ -783,7 +783,7 @@ def remove_sender_block(block_id):
 		conn.close()
 		return jsonify({'error': 'Not found'}), 404
 	
-	cursor.execute('DELETE FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
+	cursor.execute(f'DELETE FROM {cfg.t("sender_blocklist")} WHERE id = %s', (block_id,))
 	conn.commit()
 	cursor.close()
 	conn.close()
