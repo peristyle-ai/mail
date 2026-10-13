@@ -163,22 +163,29 @@ CREATE INDEX IF NOT EXISTS idx_embedding_jobs_email_id
 DO $$
 DECLARE
     missing BOOLEAN;
+    v_schema TEXT;
 BEGIN
-    SELECT NOT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'email_chunks'
-    )
-    INTO missing;
-    IF missing THEN
-        RAISE EXCEPTION 'Migration 003 failed: email_chunks not created';
+    -- Use the configured schema (or public if standalone)
+    v_schema := current_setting('app.mail_schema', TRUE);
+    IF v_schema IS NULL OR v_schema = '' THEN
+        v_schema := 'public';
     END IF;
 
     SELECT NOT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'embedding_jobs'
+        WHERE table_schema = v_schema AND table_name = 'email_chunks'
     )
     INTO missing;
     IF missing THEN
-        RAISE EXCEPTION 'Migration 003 failed: embedding_jobs not created';
+        RAISE EXCEPTION 'Migration 003 failed: email_chunks not created in schema %', v_schema;
+    END IF;
+
+    SELECT NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = v_schema AND table_name = 'embedding_jobs'
+    )
+    INTO missing;
+    IF missing THEN
+        RAISE EXCEPTION 'Migration 003 failed: embedding_jobs not created in schema %', v_schema;
     END IF;
 END $$;
