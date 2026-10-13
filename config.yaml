@@ -65,33 +65,23 @@ security:
 
 # DKIM signing for outbound emails
 # Improves deliverability to Gmail, Outlook, etc.
+# NOTE: Configure your domains in .env or a local config.yaml — do NOT commit
+# domain-specific private key paths to the tracked file.
 dkim:
   enabled: true
   
   # Multi-domain DKIM configuration
   # Add a domain entry for each domain you send from
-  domains:
-    - domain: "example.com.au"
-      selector: "default"
-      private_key: "certs/dkim_default.pem"
-    - domain: "mailrelay.com"
-      selector: "protophys"
-      private_key: "certs/dkim_protophys.pem"
-    - domain: "example.ai"
-      selector: "fencemate"
-      private_key: "certs/dkim_fencemate.pem"
-    - domain: "example.ai"
-      selector: "default"
-      private_key: "certs/dkim_default.pem"
-    - domain: "example.io"
-      selector: "flowerops"
-      private_key: "certs/dkim_flowerops.pem"
-    - domain: "example.trade"
-      selector: "enp1"
-      private_key: "certs/dkim_enp1.pem"
+  # Override via environment variable: DKIM_DOMAINS (JSON array) or edit locally
+  domains: []
+    # Example:
+    # - domain: "example.com"
+    #   selector: "default"
+    #   private_key: "certs/dkim_example.pem"
 
   # Fallback single domain config (used if domains list is empty)
-  domain: "example.com.au"
+  # Override via environment variables: DKIM_DOMAIN, DKIM_SELECTOR, DKIM_PRIVATE_KEY
+  domain: "localhost"
   selector: "default"
   private_key: "certs/dkim_default.pem"
 
