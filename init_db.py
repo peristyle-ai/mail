@@ -143,6 +143,10 @@ def init_db(mode: str = "schema"):
     # init_db.py.
     cursor.execute(f'SET search_path TO "{schema}", public')
     print(f"[1d] set search_path to {schema!r}, public")
+    
+    # Set the mail_schema GUC so migrations can reference it for verification
+    cursor.execute(f"SET app.mail_schema = '{schema}'")
+    print(f"[1d] set app.mail_schema GUC to {schema!r}")
 
     # Check the external users table if MAIL_USERS_TABLE was set
     _assert_external_users_table(cursor, users_table, schema)
@@ -158,7 +162,37 @@ def init_db(mode: str = "schema"):
         print(f"[1d] applying {sql_file} ...")
         with open(sql_file, "r") as f:
             sql = f.read()
-        cursor.execute(sql)
+        try:
+            cursor.execute(sql)
+            conn.commit()  # Commit after each file so partial progress is kept
+        except Exception as e:
+            print(f"[1d] ERROR in {sql_file}: {e}")
+            conn.rollback()
+            raise
+
+    # Apply migrations from db/migrations/ in order (002, 003, etc.)
+    # These are incremental schema changes that assume the base tables exist.
+    # Some migrations require superuser (e.g. CREATE EXTENSION vector) —
+    # those are skipped with a warning if the current role lacks privileges.
+    migration_files = sorted(glob.glob("db/migrations/*.sql"))
+    if migration_files:
+        print(f"[1d] applying {len(migration_files)} migrations from db/migrations/ ...")
+        for migration_file in migration_files:
+            print(f"[1d] applying {migration_file} ...")
+            with open(migration_file, "r") as f:
+                sql = f.read()
+            try:
+                cursor.execute(sql)
+                conn.commit()  # Commit after each migration
+            except psycopg2.errors.InsufficientPrivilege as e:
+                print(f"[1d] WARNING: skipped {migration_file} (insufficient privilege: {e})")
+                print(f"[1d]   This migration requires superuser. Run manually as postgres if needed.")
+                conn.rollback()  # Roll back only the failed migration
+                continue
+            except Exception as e:
+                print(f"[1d] ERROR in {migration_file}: {e}")
+                conn.rollback()
+                raise
 
     # The rate-limit-attempts table is created in-line (not in a .sql file) so
     # we can keep the structure visible here. This matches the old init_db.py.

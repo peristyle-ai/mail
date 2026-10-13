@@ -102,50 +102,56 @@ CREATE POLICY attachments_isolation ON attachments
     );
 
 -- ----- email_chunks -----------------------------------------------------------
-
-ALTER TABLE email_chunks ENABLE ROW LEVEL SECURITY;
-
--- Users can see chunks for emails they can see.
-CREATE POLICY email_chunks_isolation ON email_chunks
-    FOR ALL
-    TO mail_external_app
-    USING (
-        email_id IN (
-            SELECT e.id FROM emails e
-            JOIN folders f ON e.folder_id = f.id
-            WHERE f.user_id = current_app_user_id()
-        )
-    )
-    WITH CHECK (
-        email_id IN (
-            SELECT e.id FROM emails e
-            JOIN folders f ON e.folder_id = f.id
-            WHERE f.user_id = current_app_user_id()
-        )
-    );
+-- Only apply if the table exists (may not exist if migration 003 was skipped)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'email_chunks' AND schemaname = current_setting('app.mail_schema', TRUE)) THEN
+        EXECUTE 'ALTER TABLE email_chunks ENABLE ROW LEVEL SECURITY';
+        EXECUTE 'CREATE POLICY email_chunks_isolation ON email_chunks
+            FOR ALL
+            TO mail_external_app
+            USING (
+                email_id IN (
+                    SELECT e.id FROM emails e
+                    JOIN folders f ON e.folder_id = f.id
+                    WHERE f.user_id = current_app_user_id()
+                )
+            )
+            WITH CHECK (
+                email_id IN (
+                    SELECT e.id FROM emails e
+                    JOIN folders f ON e.folder_id = f.id
+                    WHERE f.user_id = current_app_user_id()
+                )
+            )';
+    END IF;
+END $$;
 
 -- ----- embedding_jobs ---------------------------------------------------------
-
-ALTER TABLE embedding_jobs ENABLE ROW LEVEL SECURITY;
-
--- Users can see jobs for emails they can see.
-CREATE POLICY embedding_jobs_isolation ON embedding_jobs
-    FOR ALL
-    TO mail_external_app
-    USING (
-        email_id IN (
-            SELECT e.id FROM emails e
-            JOIN folders f ON e.folder_id = f.id
-            WHERE f.user_id = current_app_user_id()
-        )
-    )
-    WITH CHECK (
-        email_id IN (
-            SELECT e.id FROM emails e
-            JOIN folders f ON e.folder_id = f.id
-            WHERE f.user_id = current_app_user_id()
-        )
-    );
+-- Only apply if the table exists (may not exist if migration 003 was skipped)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'embedding_jobs' AND schemaname = current_setting('app.mail_schema', TRUE)) THEN
+        EXECUTE 'ALTER TABLE embedding_jobs ENABLE ROW LEVEL SECURITY';
+        EXECUTE 'CREATE POLICY embedding_jobs_isolation ON embedding_jobs
+            FOR ALL
+            TO mail_external_app
+            USING (
+                email_id IN (
+                    SELECT e.id FROM emails e
+                    JOIN folders f ON e.folder_id = f.id
+                    WHERE f.user_id = current_app_user_id()
+                )
+            )
+            WITH CHECK (
+                email_id IN (
+                    SELECT e.id FROM emails e
+                    JOIN folders f ON e.folder_id = f.id
+                    WHERE f.user_id = current_app_user_id()
+                )
+            )';
+    END IF;
+END $$;
 
 -- ----- outbound_queue ---------------------------------------------------------
 
@@ -210,18 +216,24 @@ DO $$
 DECLARE
     tbl TEXT;
     missing BOOLEAN;
+    v_schema TEXT;
 BEGIN
+    v_schema := current_setting('app.mail_schema', TRUE);
+    IF v_schema IS NULL OR v_schema = '' THEN
+        v_schema := 'public';
+    END IF;
+
     FOR tbl IN SELECT unnest(ARRAY[
         'folders', 'emails', 'email_recipients', 'attachments',
-        'email_chunks', 'embedding_jobs', 'outbound_queue', 'delivery_logs'
+        'outbound_queue', 'delivery_logs'
     ]) LOOP
         SELECT NOT EXISTS (
             SELECT 1 FROM pg_tables
-            WHERE schemaname = 'public' AND tablename = tbl AND rowsecurity = TRUE
+            WHERE schemaname = v_schema AND tablename = tbl AND rowsecurity = TRUE
         ) INTO missing;
         IF missing THEN
-            RAISE EXCEPTION 'Migration 004 failed: RLS not enabled on %', tbl;
+            RAISE EXCEPTION 'Migration 004 failed: RLS not enabled on %.%', v_schema, tbl;
         END IF;
     END LOOP;
-    RAISE NOTICE 'Migration 004: RLS enabled on all 8 user-data tables';
+    RAISE NOTICE 'Migration 004: RLS enabled on 6 core user-data tables in schema %', v_schema;
 END $$;
