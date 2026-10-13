@@ -124,7 +124,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 			# Log the violation
 			try:
 				cursor.execute(
-					'''INSERT INTO {cfg.t("rate_limit_violations")} (client_ip, violation_type, count)
+					f'''INSERT INTO {cfg.t("rate_limit_violations")} (client_ip, violation_type, count)
 					   VALUES (%s, %s, %s)''',
 					(key.split(':')[1] if ':' in key else key, 'rate_limit_exceeded', count)
 				)
