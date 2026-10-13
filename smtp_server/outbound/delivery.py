@@ -109,9 +109,31 @@ class OutboundSMTPSender:
 						if using_ip_address and verify_cert:
 							peer_cert = server.sock.getpeercert()
 							if peer_cert:
-								import ssl as _ssl
 								try:
-									_ssl.match_hostname(peer_cert, mail_server)
+									# ssl.match_hostname was removed in Python 3.12
+									# Use cryptography.x509 for manual cert verification
+									from cryptography import x509
+									from cryptography.x509.oid import NameOID
+									
+									der_cert = server.sock.getpeercert(binary_form=True)
+									cert = x509.load_der_x509_certificate(der_cert)
+									
+									# Check Subject Alternative Names (SAN) first
+									san_hosts = []
+									try:
+										san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+										san_hosts = [str(v) for v in san_ext.value]
+									except x509.ExtensionNotFound:
+										pass
+									
+									# Fall back to Common Name (CN) if no SAN
+									if not san_hosts:
+										cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+										san_hosts = [str(v.value) for v in cn_attrs]
+									
+									if mail_server not in san_hosts:
+										raise ValueError(f"hostname {mail_server} not in cert SAN/CN: {san_hosts}")
+									
 								except Exception as cert_err:
 									logger.warning(
 										f"TLS cert hostname mismatch: {mail_server} "
