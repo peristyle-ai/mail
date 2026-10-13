@@ -121,7 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_email_chunks_folder_id
     ON email_chunks(folder_id) WHERE folder_id IS NOT NULL;
 
 -- HNSW on halfvec(1024) — 2048 bytes/row, comfortably under pgvector's
--- page limit (see MEMORY.md pgvector halfvec dim ceiling, 2026-08-16).
+-- page limit.
 CREATE INDEX IF NOT EXISTS idx_email_chunks_embedding_hnsw
     ON email_chunks USING hnsw (embedding halfvec_cosine_ops)
     WITH (m = 16, ef_construction = 64);

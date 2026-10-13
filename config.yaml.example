@@ -87,8 +87,8 @@ dkim:
 
 # SPF Record - add this to your DNS:
 # Type: TXT
-# Host: example.com.au
-# Value: v=spf1 ip4:203.0.113.10 -all
+# Host: your-domain.com
+# Value: v=spf1 ip4:YOUR_SERVER_IP -all
 
 # API settings
 api:
@@ -107,8 +107,7 @@ api:
 #     mail-server-embeddings.service, scripts/run_embedding_worker.py)
 #
 # Defaults: body chunks are embedded only for emails that land in
-# Processed or Sent. Subject embedding always runs (kept consistent with
-# the new async process per Mal's directive 2026-09-06).
+# Processed or Sent. Subject embedding always runs.
 #
 # Override any of these via env vars:
 #   EMBEDDING_ENABLED, EMBEDDING_GPU_URL, EMBEDDING_GPU_HOST/PORT,
@@ -122,7 +121,7 @@ embedding:
   model: "Qwen/Qwen3-Embedding-4B"
 
   # 1024-dim Matryoshka vectors. halfvec(1024) = 2048 bytes/row, safely
-  # under pgvector's HNSW page-entry limit (MEMORY.md 2026-08-16).
+  # under pgvector's HNSW page-entry limit.
   dimensions: 1024
 
   chunk:

@@ -334,8 +334,7 @@ class MailServerConfig:
     #
     # Per-folder opt-in: a folder is body-chunked only if its name appears
     # in `embedding.folders` with `enabled: true`. Subject embedding always
-    # runs (per Mal's directive 2026-09-06 — keep `emails.subject_embedding`
-    # populated via the same async pipeline).
+    # runs.
 
     @property
     def embedding_enabled(self) -> bool:
@@ -365,8 +364,7 @@ class MailServerConfig:
 
     @property
     def embedding_dimensions(self) -> int:
-        """Output dim. 1024 fits pgvector halfvec HNSW safely
-        (MEMORY.md pgvector halfvec dim ceiling, 2026-08-16)."""
+        """Output dim. 1024 fits pgvector halfvec HNSW safely."""
         env_val = os.getenv('EMBEDDING_DIMENSIONS')
         if env_val:
             return int(env_val)

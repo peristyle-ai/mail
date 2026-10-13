@@ -289,7 +289,7 @@ The schema adds 5 columns to `emails` for Gmail-style conversation threading:
 Async pipeline that writes halfvec(1024) embeddings for email bodies and
 GIN trigram indexes for keyword search. Subject embedding is folded into
 the same worker so the live `emails.subject_embedding` column stays in
-sync (per Mal's directive 2026-09-06).
+sync.
 
 **Tables** (migration `db/migrations/003_email_chunks_and_embedding_jobs.sql`):
 - `email_chunks` — one row per chunk of an email body; carries `content`
@@ -322,8 +322,7 @@ commit (defensive try/except — never blocks the source path):
   (default `http://127.0.0.1:8080`, env `EMBEDDING_GPU_URL`).
 - `embedding.model` — model id (default `Qwen/Qwen3-Embedding-4B`).
 - `embedding.dimensions` — Matryoshka output dim (default `1024`; halfvec
-  at 2560-dim exceeds pgvector's HNSW page limit — see MEMORY.md
-  pgvector halfvec dim ceiling, 2026-08-16).
+  at 2560-dim exceeds pgvector's HNSW page limit).
 - `embedding.chunk.target_chars` / `overlap_chars` — chunker tuning
   (defaults `800` / `100`).
 - `embedding.folders.<Name>.enabled` — per-folder opt-in for body
