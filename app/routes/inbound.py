@@ -266,7 +266,7 @@ def find_or_create_sender(sender_email: str) -> int:
 		from ..utils.auth import hash_password as _hash_pw
 		_random_hash = _hash_pw(_secrets.token_hex(32))
 		cursor.execute(
-			'''INSERT INTO {cfg.users_t()} (email, password_hash, name, is_local, created_at)
+			f'''INSERT INTO {cfg.users_t()} (email, password_hash, name, is_local, created_at)
 			   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
 			(sender_email, _random_hash, sender_username, False, datetime.now(timezone.utc))
 		)
