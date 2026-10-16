@@ -64,7 +64,7 @@ def _resolve_folder_name(folder_id: Optional[int], user_id: Optional[int]) -> st
         cursor = conn.cursor()
         if user_id is not None:
             cursor.execute(
-                'SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s',
+                f'SELECT name FROM {cfg.t("folders")} WHERE id = %s AND user_id = %s',
                 (folder_id, user_id),
             )
         else:

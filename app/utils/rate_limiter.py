@@ -71,7 +71,7 @@ def _prune_old_attempts(cursor, key: str, window_seconds: int):
 	"""Remove attempts older than the window."""
 	cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
 	cursor.execute(
-		'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s AND attempted_at < %s',
+		f'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s AND attempted_at < %s',
 		(key, cutoff)
 	)
 
@@ -115,7 +115,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> Tuple[
 		_prune_old_attempts(cursor, key, window_seconds)
 		
 		cursor.execute(
-			'SELECT COUNT(*) AS n FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
+			f'SELECT COUNT(*) AS n FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
 			(key,)
 		)
 		count = cursor.fetchone()['n']
@@ -159,7 +159,7 @@ def record_attempt(key: str):
 	try:
 		if _table_exists(cursor):
 			cursor.execute(
-				'INSERT INTO {cfg.t("rate_limit_attempts")} (key) VALUES (%s)',
+				f'INSERT INTO {cfg.t("rate_limit_attempts")} (key) VALUES (%s)',
 				(key,)
 			)
 			conn.commit()
@@ -180,7 +180,7 @@ def clear_attempts(key: str):
 	try:
 		if _table_exists(cursor):
 			cursor.execute(
-				'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
+				f'DELETE FROM {cfg.t("rate_limit_attempts")} WHERE key = %s',
 				(key,)
 			)
 			conn.commit()

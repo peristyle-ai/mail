@@ -238,7 +238,7 @@ def resolve_recipient_user(recipient_email: str):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'SELECT id, is_local FROM {cfg.users_t()} WHERE email = %s',
+			'SELECT id, is_local FROM ' + cfg.users_t() + ' WHERE email = %s',
 			(recipient_email,)
 		)
 		row = cursor.fetchone()
@@ -282,7 +282,7 @@ def get_or_create_inbox(user_id: int) -> int:
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'SELECT id FROM {cfg.t("folders")} WHERE user_id = %s AND name = %s',
+			f'SELECT id FROM {cfg.t("folders")} WHERE user_id = %s AND name = %s',
 			(user_id, 'Inbox')
 		)
 		folder = cursor.fetchone()
@@ -290,7 +290,7 @@ def get_or_create_inbox(user_id: int) -> int:
 			return folder['id']
 
 		cursor.execute(
-			'INSERT INTO {cfg.t("folders")} (user_id, name) VALUES (%s, %s) RETURNING id',
+			f'INSERT INTO {cfg.t("folders")} (user_id, name) VALUES (%s, %s) RETURNING id',
 			(user_id, 'Inbox')
 		)
 		conn.commit()
@@ -571,7 +571,7 @@ def receive_inbound_webhook():
 		email_id = cursor.fetchone()['id']
 
 		cursor.execute(
-			'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
+			f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
 			(email_id, recipient_id, 'to')
 		)
 
