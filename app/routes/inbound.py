@@ -238,7 +238,7 @@ def resolve_recipient_user(recipient_email: str):
 	cursor = conn.cursor()
 	try:
 		cursor.execute(
-			'SELECT id, is_local FROM ' + cfg.users_t() + ' WHERE email = %s',
+			f'SELECT id, is_local FROM {cfg.users_t()} WHERE email = %s',
 			(recipient_email,)
 		)
 		row = cursor.fetchone()
