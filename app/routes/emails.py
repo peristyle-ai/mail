@@ -1387,7 +1387,7 @@ def list_thread_messages(thread_id):
 		# Include emails from ALL folders in the thread (not just user's folders) — the user can see
 		# any email where they're the sender or a recipient.
 		cursor.execute(
-			"""
+			f"""
 			SELECT DISTINCT ON (e.id)
 			       e.id, e.message_id, e.in_reply_to, e.subject, e.body,
 			       e.body_html, e.is_read, e.is_starred, e.created_at,
