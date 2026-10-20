@@ -1388,25 +1388,28 @@ def list_thread_messages(thread_id):
 		# any email where they're the sender or a recipient.
 		cursor.execute(
 			f"""
-			SELECT DISTINCT ON (e.id)
-			       e.id, e.message_id, e.in_reply_to, e.subject, e.body,
-			       e.body_html, e.is_read, e.is_starred, e.created_at,
-			       s.email AS sender_email, s.name AS sender_name,
-			       er.recipient_email AS recipient_email,
-			       er.recipient_type AS recipient_type,
-			       r.email AS recipient_user_email, r.name AS recipient_user_name,
-			       f.name AS folder_name
-			FROM {cfg.t("emails")} e
-			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
-			JOIN {cfg.users_t()} s ON e.sender_id = s.id
-			LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
-			LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
-			WHERE e.thread_id = %s
-			  AND (e.sender_id = %s OR er.user_id = %s)
-			ORDER BY e.created_at DESC,
-			         CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
-			         CASE WHEN er.user_id IS NOT NULL THEN 0 ELSE 1 END,
-			         er.id ASC
+			SELECT * FROM (
+				SELECT DISTINCT ON (e.id)
+				       e.id, e.message_id, e.in_reply_to, e.subject, e.body,
+				       e.body_html, e.is_read, e.is_starred, e.created_at,
+				       s.email AS sender_email, s.name AS sender_name,
+				       er.recipient_email AS recipient_email,
+				       er.recipient_type AS recipient_type,
+				       r.email AS recipient_user_email, r.name AS recipient_user_name,
+				       f.name AS folder_name
+				FROM {cfg.t("emails")} e
+				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
+				JOIN {cfg.users_t()} s ON e.sender_id = s.id
+				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
+				LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
+				WHERE e.thread_id = %s
+				  AND (e.sender_id = %s OR er.user_id = %s)
+				ORDER BY e.id ASC,
+				         CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
+				         CASE WHEN er.user_id IS NOT NULL THEN 0 ELSE 1 END,
+				         er.id ASC
+			) AS distinct_emails
+			ORDER BY created_at DESC
 		""",
 			(thread_id, user_id, user_id),
 		)
