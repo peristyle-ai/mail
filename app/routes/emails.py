@@ -1291,7 +1291,7 @@ def list_threads():
 		if threads:
 			thread_ids = [t['thread_id'] for t in threads]
 			cursor.execute(
-				"""
+				f"""
 				SELECT e.thread_id,
 				       ARRAY_AGG(DISTINCT s.email) FILTER (WHERE s.email IS NOT NULL) AS senders,
 				       ARRAY_AGG(DISTINCT r.email) FILTER (WHERE r.email IS NOT NULL) AS recipients,
