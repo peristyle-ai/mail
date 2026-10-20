@@ -1059,7 +1059,7 @@ def get_delivery_status(email_id):
 	
 	# Verify email exists and belongs to user (delivery status is for sent emails)
 	cursor.execute(
-		'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		f'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
 		(email_id, request.current_user['id'])
 	)
 	email = cursor.fetchone()
@@ -1157,7 +1157,7 @@ def _user_can_see_thread(cursor, user_id: int, thread_id: str) -> bool:
 	"""Return True if `user_id` is a sender or recipient of at least one
 	email in `thread_id` whose folder they own."""
 	cursor.execute(
-		"""
+		f"""
 		SELECT EXISTS (
 			SELECT 1 FROM {cfg.t("emails")} e
 			JOIN {cfg.t("folders")} f ON e.folder_id = f.id
