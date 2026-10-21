@@ -1491,7 +1491,7 @@ def mark_thread_read(thread_id):
 			return jsonify({'error': 'thread not found'}), 404
 
 		cursor.execute(
-			"""
+			f"""
 			UPDATE {cfg.t("emails")}
 			SET is_read = TRUE
 			WHERE id IN (
@@ -1566,7 +1566,7 @@ def toggle_thread_star(thread_id):
 		new_state = not bool(row['is_starred'])
 
 		cursor.execute(
-			"""
+			f"""
 			UPDATE {cfg.t("emails")}
 			SET is_starred = %s
 			WHERE id IN (
