@@ -294,7 +294,7 @@ def list_attachments(email_id):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	cursor.execute(
-		'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		f'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
 		(email_id, request.current_user['id'])
 	)
 	email = cursor.fetchone()
