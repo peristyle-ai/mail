@@ -571,8 +571,8 @@ def receive_inbound_webhook():
 		email_id = cursor.fetchone()['id']
 
 		cursor.execute(
-			f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type) VALUES (%s, %s, %s)',
-			(email_id, recipient_id, 'to')
+			f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type, recipient_email) VALUES (%s, %s, %s, %s)',
+			(email_id, recipient_id, 'to', recipient_email)
 		)
 
 		# PR1 — enqueue async embedding job (subject always; body only when
