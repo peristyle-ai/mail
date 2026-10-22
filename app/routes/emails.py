@@ -1393,29 +1393,55 @@ def list_thread_messages(thread_id):
 				       e.id, e.message_id, e.in_reply_to, e.subject, e.body,
 				       e.body_html, e.is_read, e.is_starred, e.created_at,
 				       s.email AS sender_email, s.name AS sender_name,
-				       er.recipient_email AS recipient_email,
-				       er.recipient_type AS recipient_type,
-				       r.email AS recipient_user_email, r.name AS recipient_user_name,
 				       f.name AS folder_name
 				FROM {cfg.t("emails")} e
 				JOIN {cfg.t("folders")} f ON e.folder_id = f.id
 				JOIN {cfg.users_t()} s ON e.sender_id = s.id
-				LEFT JOIN {cfg.t("email_recipients")} er ON er.email_id = e.id
-				LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
 				WHERE e.thread_id = %s
-				  AND (e.sender_id = %s OR er.user_id = %s)
-				ORDER BY e.id ASC,
-				         CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
-				         CASE WHEN er.user_id IS NOT NULL THEN 0 ELSE 1 END,
-				         er.id ASC
+				  AND (e.sender_id = %s OR EXISTS (
+				      SELECT 1 FROM {cfg.t("email_recipients")} er 
+				      WHERE er.email_id = e.id AND er.user_id = %s
+				  ))
+				ORDER BY e.id ASC
 			) AS distinct_emails
 			ORDER BY created_at DESC
 		""",
 			(thread_id, user_id, user_id),
 		)
 		rows = cursor.fetchall()
+		
+		# Fetch all recipients for each email
+		email_ids = [r['id'] for r in rows]
+		recipients_map = {}
+		if email_ids:
+			cursor.execute(
+				f"""
+				SELECT er.email_id, er.recipient_email, er.recipient_type,
+				       r.email AS recipient_user_email, r.name AS recipient_user_name
+				FROM {cfg.t("email_recipients")} er
+				LEFT JOIN {cfg.users_t()} r ON er.user_id = r.id
+				WHERE er.email_id = ANY(%s)
+				ORDER BY er.email_id, 
+				         CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
+				         er.id ASC
+				""",
+				(email_ids,)
+			)
+			for r in cursor.fetchall():
+				email_id = r['email_id']
+				if email_id not in recipients_map:
+					recipients_map[email_id] = {'to': [], 'cc': [], 'bcc': []}
+				recipient = {
+					'email': r['recipient_email'],
+					'name': (r['recipient_user_name']
+					         if r.get('recipient_user_email') and r['recipient_user_email'] == r['recipient_email']
+					         else None),
+				}
+				recipients_map[email_id][r['recipient_type']].append(recipient)
+		
 		messages = []
 		for r in rows:
+			recipients = recipients_map.get(r['id'], {'to': [], 'cc': [], 'bcc': []})
 			messages.append({
 				'id': r['id'],
 				'message_id': r['message_id'],
@@ -1424,14 +1450,11 @@ def list_thread_messages(thread_id):
 					'email': r['sender_email'],
 					'name': r['sender_name'],
 				},
-				# Primary recipient is from {cfg.t("email_recipients")}.recipient_email (handles external too).
-				# Name comes from {cfg.users_t()} table only when it's a local user (recipient_user_email == recipient_email).
-				'recipient': {
-					'email': r['recipient_email'],
-					'name': (r['recipient_user_name']
-					         if r.get('recipient_user_email') and r['recipient_user_email'] == r['recipient_email']
-					         else None),
-				} if r['recipient_email'] else None,
+				'to_recipients': recipients['to'],
+				'cc_recipients': recipients['cc'],
+				'bcc_recipients': recipients['bcc'],
+				# Keep 'recipient' for backward compatibility (first To recipient)
+				'recipient': recipients['to'][0] if recipients['to'] else None,
 				'folder': r['folder_name'],
 				'subject': r['subject'],
 				'body': r['body'],
