@@ -1608,3 +1608,64 @@ def toggle_thread_star(thread_id):
 	finally:
 		cursor.close()
 		conn.close()
+
+
+@bp.route('/api/emails/<int:email_id>/recipients', methods=['GET'])
+@token_required
+def get_email_recipients(email_id):
+	"""
+	Get all recipients (To, Cc, Bcc) for an email
+	---
+	tags:
+	  - Emails
+	security:
+	  - Bearer: []
+	parameters:
+	  - in: path
+	    name: email_id
+	    type: integer
+	    required: true
+	responses:
+	  200:
+	    description: Recipients grouped by type
+	  404:
+	    description: Email not found
+	"""
+	conn = get_db_connection()
+	cursor = conn.cursor()
+	
+	# Verify user owns the email (via folder ownership)
+	cursor.execute(
+		f'SELECT e.id FROM {cfg.t("emails")} e JOIN {cfg.t("folders")} f ON e.folder_id = f.id WHERE e.id = %s AND f.user_id = %s',
+		(email_id, request.current_user['id'])
+	)
+	email = cursor.fetchone()
+	if not email:
+		cursor.close()
+		conn.close()
+		return jsonify({'error': 'Email not found'}), 404
+	
+	# Get all recipients for this email
+	cursor.execute(
+		f'''SELECT er.recipient_email, er.recipient_type, u.email as user_email, u.name as user_name
+		   FROM {cfg.t("email_recipients")} er
+		   LEFT JOIN {cfg.users_t()} u ON er.user_id = u.id
+		   WHERE er.email_id = %s
+		   ORDER BY 
+			   CASE er.recipient_type WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END,
+			   er.id ASC''',
+		(email_id,)
+	)
+	recipients = cursor.fetchall()
+	cursor.close()
+	conn.close()
+	
+	result = {'to': [], 'cc': [], 'bcc': []}
+	for r in recipients:
+		recipient = {
+			'email': r['recipient_email'],
+			'name': r['user_name'] if r.get('user_email') and r['user_email'] == r['recipient_email'] else None,
+		}
+		result[r['recipient_type']].append(recipient)
+	
+	return jsonify(result)
