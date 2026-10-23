@@ -570,10 +570,51 @@ def receive_inbound_webhook():
 		)
 		email_id = cursor.fetchone()['id']
 
-		cursor.execute(
-			f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type, recipient_email) VALUES (%s, %s, %s, %s)',
-			(email_id, recipient_id, 'to', recipient_email)
-		)
+		# Parse raw email headers to extract all To and CC recipients
+		to_recipients = [recipient_email]  # The primary recipient
+		cc_recipients = []
+		if raw_email_clean:
+			try:
+				from email import policy
+				from email.parser import Parser
+				from email.utils import getaddresses
+				
+				# Parse the raw email headers
+				msg = Parser(policy=policy.default).parsestr(raw_email_clean)
+				
+				# Extract To recipients
+				to_header = msg.get('To', '')
+				if to_header:
+					to_addrs = getaddresses([to_header])
+					to_recipients = [addr[1] for addr in to_addrs if addr[1]]
+				
+				# Extract CC recipients
+				cc_header = msg.get('Cc', '')
+				if cc_header:
+					cc_addrs = getaddresses([cc_header])
+					cc_recipients = [addr[1] for addr in cc_addrs if addr[1]]
+					
+			except Exception as e:
+				logger.warning(f"Failed to parse raw email headers for recipients: {e}")
+
+		# Insert all To recipients
+		for to_email in to_recipients:
+			# Check if this recipient is a local user
+			to_user = resolve_recipient_user(to_email)
+			to_user_id = to_user[0] if to_user else None
+			cursor.execute(
+				f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type, recipient_email) VALUES (%s, %s, %s, %s)',
+				(email_id, to_user_id, 'to', to_email)
+			)
+		
+		# Insert all CC recipients
+		for cc_email in cc_recipients:
+			cc_user = resolve_recipient_user(cc_email)
+			cc_user_id = cc_user[0] if cc_user else None
+			cursor.execute(
+				f'INSERT INTO {cfg.t("email_recipients")} (email_id, user_id, recipient_type, recipient_email) VALUES (%s, %s, %s, %s)',
+				(email_id, cc_user_id, 'cc', cc_email)
+			)
 
 		# PR1 — enqueue async embedding job (subject always; body only when
 		# the folder is in the configured set). Failures here MUST NOT
