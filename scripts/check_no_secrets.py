@@ -65,17 +65,34 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern]] = [
 # if BOTH the place and the value match, so a real secret in a test file
 # is still a finding.
 ALLOWLIST: list[tuple[str, str, str]] = [
+# Each entry is (path-glob, exact value, why). A finding is excused only
+# if BOTH the place and the value match, so a real secret in a test file
+# is still a finding. The exemptions are printed on every run.
+    ("*.md", "change-me-password", "a documentation example"),
+    ("*.md", "eyJhbGciOiJIUzI1NiIs...", "a truncated JWT example in the docs"),
+    ("*.md", "jwt_token_here", "a documentation example"),
+    ("tests/*", "attachpass", "an email-attach password fixture"),
+    ("tests/*", "change-me-password", "a documentation example"),
+    ("tests/*", "correct-password", "a test fixture's expected password"),
+    ("tests/*", "correctpassword", "a test fixture's expected password"),
+    ("tests/*", "differentpassword", "a test fixture's deliberately-wrong password"),
+    ("tests/*", "domain-secret-123456", "a test fixture's throwaway value"),
+    ("tests/*", "somepassword", "a test fixture's throwaway value"),
+    ("tests/*", "test-webhook-secret-key", "a test fixture's throwaway value"),
+    ("tests/*", "testpassword456", "a test fixture's throwaway value"),
+    ("tests/*", "workflowpass123", "a test fixture's throwaway value"),
+    ("tests/*", "wrong-password", "a test fixture's deliberately-wrong password"),
+    ("tests/*", "wrong-secret", "a test fixture's deliberately-wrong value"),
+    ("tests/*", "wrongpassword", "a test fixture's deliberately-wrong password"),
+    ("*.github/workflows/*.yml", "password", "the CI's own throwaway postgres password"),
+    ("docs/*", "password", "a documentation example"),
     ("tests/*", "not-a-real-password", "the suite's throwaway fixture password"),
     ("tests/*", "not-a-real-secure-password", "the suite's throwaway secure fixture password"),
     ("tests/*", "nobody", "a test fixture's placeholder password"),
     ("tests/*", "keepthispassword", "a test fixture's placeholder password"),
     ("tests/*", "***", "a test fixture's masked value"),
     (".env.example", "password", "the example env's placeholder password"),
-    ("README.md", "password", "a documentation example"),
-    ("API_DOCUMENTATION.md", "password", "a documentation example"),
-    ("coding_agent/*.md", "password", "a documentation example"),
-    ("*.github/workflows/*.yml", "password", "the CI's own throwaway postgres password"),
-    ("docs/*", "password", "a documentation example"),
+("*.md", "password", "a documentation example's placeholder connection-string password"),
 ]
 
 # --- the exempt files --------------------------------------------------
