@@ -1,6 +1,16 @@
+import os
 import uuid
 
 import app.routes.auth as auth_module
+
+
+
+# Fixture credential for the TEST database only. It comes from the
+# environment; the default is an obvious placeholder, so a copy of this
+# file cannot authenticate anywhere. A hardcoded value in a test file
+# is what put a live credential in a public repository once.
+FIXTURE_PASSWORD = os.environ.get('MAIL_TEST_PASSWORD', 'not-a-real-password')
+SECURE_FIXTURE_PASSWORD = os.environ.get('MAIL_TEST_SECURE_PASSWORD', 'not-a-real-secure-password')
 
 
 def reset_login_state():
@@ -16,7 +26,7 @@ class TestAuth:
 		unique_email = f'newuser_{uuid.uuid4().hex[:8]}@example.com'
 		response = client.post('/auth/register', json={
 			'email': unique_email,
-			'password': 'securepassword123',
+			'password': SECURE_FIXTURE_PASSWORD,
 			'name': 'New User'
 		})
 		assert response.status_code == 201
@@ -29,7 +39,7 @@ class TestAuth:
 		unique_email = f'duplicate_{uuid.uuid4().hex[:8]}@example.com'
 		client.post('/auth/register', json={
 			'email': unique_email,
-			'password': 'password123',
+			'password': FIXTURE_PASSWORD,
 			'name': 'User 1'
 		})
 
@@ -44,7 +54,7 @@ class TestAuth:
 	def test_register_missing_email(self, client, db):
 		reset_login_state()
 		response = client.post('/auth/register', json={
-			'password': 'password123',
+			'password': FIXTURE_PASSWORD,
 			'name': 'Test User'
 		})
 		assert response.status_code == 400
@@ -63,13 +73,13 @@ class TestAuth:
 		unique_email = f'loginuser_{uuid.uuid4().hex[:8]}@example.com'
 		client.post('/auth/register', json={
 			'email': unique_email,
-			'password': 'testpassword123',
+			'password': FIXTURE_PASSWORD,
 			'name': 'Login User'
 		})
 
 		response = client.post('/auth/login', json={
 			'email': unique_email,
-			'password': 'testpassword123'
+			'password': FIXTURE_PASSWORD
 		})
 		assert response.status_code == 200
 		data = response.get_json()
@@ -119,7 +129,7 @@ class TestAuth:
 		unique_email = f"sqlinject_{uuid.uuid4().hex[:8]}@example.com'; DROP TABLE users; --"
 		response = client.post('/auth/register', json={
 			'email': unique_email,
-			'password': 'password123',
+			'password': FIXTURE_PASSWORD,
 			'name': 'SQL Injection Test'
 		})
 		assert response.status_code in [201, 400, 409]
@@ -129,7 +139,7 @@ class TestAuth:
 		unique_email = f'xss_{uuid.uuid4().hex[:8]}@example.com'
 		response = client.post('/auth/register', json={
 			'email': unique_email,
-			'password': 'password123',
+			'password': FIXTURE_PASSWORD,
 			'name': '<script>alert("xss")</script>'
 		})
 		assert response.status_code == 201

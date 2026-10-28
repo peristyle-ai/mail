@@ -2,6 +2,14 @@ import os
 import sys
 import pytest
 
+
+
+# Fixture credential for the TEST database only. It comes from the
+# environment; the default is an obvious placeholder, so a copy of this
+# file cannot authenticate anywhere. A hardcoded value in a test file
+# is what put a live credential in a public repository once.
+FIXTURE_PASSWORD = os.environ.get('MAIL_TEST_PASSWORD', 'not-a-real-password')
+
 # ---------------------------------------------------------------------------
 # Test credential configuration
 #
@@ -96,14 +104,14 @@ def auth_headers(client, db):
 	# Register new user
 	response = client.post('/auth/register', json={
 		'email': 'test@example.com',
-		'password': 'testpassword123',
+		'password': FIXTURE_PASSWORD,
 		'name': 'Test User'
 	})
 
 	# Login to get token
 	response = client.post('/auth/login', json={
 		'email': 'test@example.com',
-		'password': 'testpassword123'
+		'password': FIXTURE_PASSWORD
 	})
 
 	data = response.get_json()
