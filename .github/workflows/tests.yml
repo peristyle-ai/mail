@@ -31,6 +31,10 @@ jobs:
 
   pytest:
     runs-on: ubuntu-latest
+    # The suite has a test that waits on something outside the database, and
+    # on a public runner it does not come back. Bound the job so a hang fails
+    # the run instead of occupying a runner for hours.
+    timeout-minutes: 15
 
     services:
       postgres:
