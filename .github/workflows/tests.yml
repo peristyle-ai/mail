@@ -71,6 +71,10 @@ jobs:
         run: |
           set -euo pipefail
           export PGPASSWORD=password
+          # The RLS migration grants to the runtime role, so the role has to
+          # exist before the migration runs.
+          psql -h localhost -U postgres -d mail_server_test -c \
+            "DO \\$\\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='mail_external_app') THEN CREATE ROLE mail_external_app; END IF; END \\$\\$;"
           for f in db/*.sql db/migrations/*.sql; do
             echo "applying $f"
             psql -h localhost -U postgres -d mail_server_test -v ON_ERROR_STOP=1 -f "$f"
