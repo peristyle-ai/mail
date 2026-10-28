@@ -2,6 +2,7 @@
 Tests for POST /inbound webhook endpoint (SMTP2GO relay receiver)
 """
 
+import os
 import hashlib
 import hmac
 import pytest
@@ -41,7 +42,7 @@ def local_user(db):
 	conn.close()
 
 	from app.utils.auth import hash_password
-	password_hash = hash_password('not-a-real-password')
+	password_hash = hash_password(os.environ.get('MAIL_TEST_PASSWORD', 'not-a-real-password'))
 	conn = db()
 	cursor = conn.cursor()
 	cursor.execute(
