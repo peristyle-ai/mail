@@ -31,6 +31,10 @@ jobs:
 
   pytest:
     runs-on: ubuntu-latest
+    # The suite has a test that waits on something outside the database, and
+    # on a public runner it does not come back. Bound the job so a hang fails
+    # the run instead of occupying a runner for hours.
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -71,6 +75,12 @@ jobs:
         run: |
           set -euo pipefail
           export PGPASSWORD=password
+          # The RLS migration grants to the runtime role, so the role has to
+          # exist before the migration runs.
+          if ! psql -h localhost -U postgres -d mail_server_test -tAc \
+               "select 1 from pg_roles where rolname='mail_external_app'" | grep -q 1; then
+            psql -h localhost -U postgres -d mail_server_test -c "CREATE ROLE mail_external_app;"
+          fi
           for f in db/*.sql db/migrations/*.sql; do
             echo "applying $f"
             psql -h localhost -U postgres -d mail_server_test -v ON_ERROR_STOP=1 -f "$f"
