@@ -34,7 +34,12 @@ jobs:
     # The suite has a test that waits on something outside the database, and
     # on a public runner it does not come back. Bound the job so a hang fails
     # the run instead of occupying a runner for hours.
-    timeout-minutes: 15
+    # The suite now finishes in about two minutes: the conftest sets
+    # lock_timeout and idle_in_transaction_session_timeout on the test
+    # database, so a session that leaks a transaction cannot wedge the run.
+    # Ten minutes is still four times what it needs, and it means a genuine
+    # wedge fails in a tenth of the time it used to.
+    timeout-minutes: 10
 
     services:
       postgres:
