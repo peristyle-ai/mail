@@ -219,6 +219,51 @@ class TestThreadsApi(unittest.TestCase):
         # these messages.
         self.assertEqual(body["total"], 0)
 
+    def test_thread_message_count_is_not_recipient_count(self):
+        """One email to N recipients is ONE message.
+
+        The list_threads 'visible' CTE LEFT JOINs email_recipients, so an
+        email with N recipients yields N joined rows. Counting rows there
+        made the thread badge show the RECIPIENT count - a reply from
+        anyone was never required for the number to be 2. The badge must
+        count distinct emails, the way /api/threads/<id>/messages already
+        does with DISTINCT ON (e.id).
+        """
+        import uuid
+        cur = self.cur
+        cur.execute(
+            "SELECT id FROM folders WHERE user_id = %s AND name = 'Sent'",
+            (self.alice_id,),
+        )
+        sent_folder_id = cur.fetchone()["id"]
+        thread_id = str(uuid.uuid4())
+        cur.execute(
+            "INSERT INTO emails (sender_id, folder_id, subject, body, is_read, "
+            "message_id, thread_id) "
+            "VALUES (%s, %s, %s, %s, TRUE, %s, %s) RETURNING id",
+            (self.alice_id, sent_folder_id, "Multi recipient quote",
+             "one message", "multi-recipient@local.test", thread_id),
+        )
+        email_id = cur.fetchone()["id"]
+        # Two external recipients: no local user, so user_id IS NULL and
+        # the recipient_email carries the address.
+        for addr in ("ext-one@remote.test", "ext-two@remote.test"):
+            cur.execute(
+                "INSERT INTO email_recipients "
+                "(email_id, user_id, recipient_email, recipient_type) "
+                "VALUES (%s, NULL, %s, 'to')",
+                (email_id, addr),
+            )
+        self.conn.commit()
+
+        r = self._emails_route
+        resp, status = self._call_get(r.list_threads, self.alice_id)
+        self.assertEqual(status, 200)
+        threads = {t["thread_id"]: t for t in resp.get_json()["threads"]}
+        self.assertIn(thread_id, threads)
+        self.assertEqual(threads[thread_id]["message_count"], 1)
+        self.assertEqual(threads[thread_id]["unread_count"], 0)
+
     def test_thread_messages_returns_chronological(self):
         r = self._emails_route
         threading_thread_id = self.threads_by_subject["Re: Threading test"]

@@ -1252,7 +1252,12 @@ def list_threads():
 			params.append(f"%{q}%")
 		where_sql = " AND ".join(where)
 
-		# Aggregate counts
+		# Aggregate counts.
+		# 'visible' LEFT JOINs email_recipients, so an email with N recipients
+		# appears N times. Count DISTINCT emails, not joined rows, or the
+		# thread badge shows the recipient count instead of the message count
+		# (the same trap /api/threads/<id>/messages already avoids with
+		# DISTINCT ON (e.id)).
 		cursor.execute(
 			f"""
 			WITH visible AS (
@@ -1265,8 +1270,8 @@ def list_threads():
 			ranked AS (
 				SELECT thread_id,
 				       MAX(created_at) AS last_message_at,
-				       COUNT(*) AS message_count,
-				       SUM(CASE WHEN is_read THEN 0 ELSE 1 END) AS unread_count
+				       COUNT(DISTINCT id) AS message_count,
+				       COUNT(DISTINCT CASE WHEN is_read THEN NULL ELSE id END) AS unread_count
 				FROM visible
 				GROUP BY thread_id
 			),
