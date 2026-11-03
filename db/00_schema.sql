@@ -11,6 +11,11 @@ CREATE TABLE IF NOT EXISTS users (
 	password_hash VARCHAR(255) NOT NULL,
 	name VARCHAR(255),
 	is_local BOOLEAN DEFAULT TRUE,
+	-- Brisbane is UTC+10 all year. Sydney (UTC+11 for part of the year) made
+	-- every rendered timestamp an hour ahead between late September and early
+	-- April. There is no endpoint that sets a timezone, so this default is
+	-- effectively the only value most accounts ever have.
+	timezone VARCHAR(64) DEFAULT 'Australia/Brisbane',
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
