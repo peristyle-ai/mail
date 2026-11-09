@@ -3,7 +3,7 @@ aiosmtpd==1.4.6
 bcrypt==5.0.0
 cryptography==50.0.2
 dkimpy==1.1.8
-dnspython==2.9.1
+dnspython==2.9.2
 Flask-Cors==6.0.5
 flasgger==0.9.7.1
 PyJWT==2.15.1
